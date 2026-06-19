@@ -4,6 +4,7 @@ import { analyzeImportDraft, completedBlockCount } from '../src/lib/importer/ana
 import { TerminalAnalysisProgress } from '../src/lib/importer/analysis-progress.ts';
 import { draftSourceBlocks, readImportDraft, writeImportDraft } from '../src/lib/importer/draft.ts';
 import { ImportError } from '../src/lib/importer/extract.ts';
+import { listCodexModels } from '../src/lib/importer/models.ts';
 import { startPreview } from '../src/lib/importer/preview.ts';
 import { publishDraft } from '../src/lib/importer/publish.ts';
 
@@ -43,6 +44,40 @@ async function confirmed(question: string, terminal: ReturnType<typeof createInt
 	return answer.trim().toLowerCase() === 'yes';
 }
 
+async function selectModel(
+	terminal: ReturnType<typeof createInterface>,
+	savedModel: string | null | undefined
+): Promise<string> {
+	const models = await listCodexModels();
+	console.log('\nAvailable Codex models:');
+	for (const [index, model] of models.entries()) {
+		const labels = [
+			model.isDefault ? 'Codex default' : '',
+			model.model === savedModel ? 'previous' : ''
+		]
+			.filter(Boolean)
+			.join(', ');
+		console.log(
+			`  ${index + 1}. ${model.displayName} (${model.model})${labels ? ` [${labels}]` : ''}\n     ${model.description}`
+		);
+	}
+	const preferred = Math.max(
+		0,
+		models.findIndex((model) => model.model === savedModel) >= 0
+			? models.findIndex((model) => model.model === savedModel)
+			: models.findIndex((model) => model.isDefault)
+	);
+
+	while (true) {
+		const answer = (await terminal.question(`Select a model [${preferred + 1}]: `)).trim();
+		const selection = answer === '' ? preferred : Number(answer) - 1;
+		if (Number.isInteger(selection) && selection >= 0 && selection < models.length) {
+			return models[selection].model;
+		}
+		console.log(`Choose a number from 1 to ${models.length}.`);
+	}
+}
+
 async function main() {
 	const {
 		draftPath,
@@ -56,13 +91,7 @@ async function main() {
 	const savedBlocks = completedBlockCount(draft);
 	const model =
 		(requestedModel ??
-			(savedBlocks < blocks.length
-				? (
-						await terminal.question(
-							`Codex model ID (blank uses ${savedModel ? `previous model "${savedModel}"` : 'your configured default'}): `
-						)
-					).trim()
-				: savedModel)) ||
+			(savedBlocks < blocks.length ? await selectModel(terminal, savedModel) : savedModel)) ||
 		savedModel ||
 		undefined;
 	console.log(`Using Codex model: ${model ?? 'configured default'}`);

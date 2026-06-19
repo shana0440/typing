@@ -59,22 +59,40 @@ describe('Analyze and Publish workflow', () => {
 			fakeCodex,
 			`#!/usr/bin/env node
 import { appendFileSync, writeFileSync } from 'node:fs';
-let prompt = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (chunk) => prompt += chunk);
-process.stdin.on('end', () => {
-  if (process.env.FAKE_CODEX_LOG) appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ args: process.argv.slice(2), prompt }) + '\\n');
-  console.log(JSON.stringify({ type: 'thread.started', thread_id: 'fake-thread' }));
-  console.log(JSON.stringify({ type: 'turn.started' }));
-  console.log(JSON.stringify({ type: 'item.started', item: { type: 'agent_message' } }));
-  console.log(JSON.stringify({ type: 'turn.completed' }));
-  if (process.env.FAKE_CODEX_FAIL === '1' || (process.env.FAKE_CODEX_FAIL_ON_TEXT && prompt.includes(process.env.FAKE_CODEX_FAIL_ON_TEXT))) { console.error('simulated Codex failure'); process.exit(2); }
-  const args = process.argv.slice(2);
-  const outputPath = args[args.indexOf('-o') + 1];
-  const input = JSON.parse(prompt.trim().split('\\n\\n').at(-1));
-  const response = process.env.FAKE_CODEX_DYNAMIC === '1' ? JSON.stringify({ sourceText: input.sourceText, annotations: [] }) : (process.env.FAKE_CODEX_RESPONSE ?? '');
-  writeFileSync(outputPath, response);
-});
+if (process.argv[2] === 'app-server') {
+  let buffer = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => {
+    buffer += chunk;
+    const lines = buffer.split('\\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      const message = JSON.parse(line);
+      if (message.method === 'initialize') console.log(JSON.stringify({ id: message.id, result: { userAgent: 'fake' } }));
+      if (message.method === 'model/list') console.log(JSON.stringify({ id: message.id, result: { data: [
+        { model: 'quality-model', displayName: 'Quality Model', description: 'Higher quality analysis.', isDefault: true, hidden: false },
+        { model: 'economical-model', displayName: 'Economical Model', description: 'Lower token cost.', isDefault: false, hidden: false }
+      ], nextCursor: null } }));
+    }
+  });
+} else {
+  let prompt = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => prompt += chunk);
+  process.stdin.on('end', () => {
+    if (process.env.FAKE_CODEX_LOG) appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ args: process.argv.slice(2), prompt }) + '\\n');
+    console.log(JSON.stringify({ type: 'thread.started', thread_id: 'fake-thread' }));
+    console.log(JSON.stringify({ type: 'turn.started' }));
+    console.log(JSON.stringify({ type: 'item.started', item: { type: 'agent_message' } }));
+    console.log(JSON.stringify({ type: 'turn.completed' }));
+    if (process.env.FAKE_CODEX_FAIL === '1' || (process.env.FAKE_CODEX_FAIL_ON_TEXT && prompt.includes(process.env.FAKE_CODEX_FAIL_ON_TEXT))) { console.error('simulated Codex failure'); process.exit(2); }
+    const args = process.argv.slice(2);
+    const outputPath = args[args.indexOf('-o') + 1];
+    const input = JSON.parse(prompt.trim().split('\\n\\n').at(-1));
+    const response = process.env.FAKE_CODEX_DYNAMIC === '1' ? JSON.stringify({ sourceText: input.sourceText, annotations: [] }) : (process.env.FAKE_CODEX_RESPONSE ?? '');
+    writeFileSync(outputPath, response);
+  });
+}
 `,
 			'utf8'
 		);
@@ -144,7 +162,7 @@ process.stdin.on('end', () => {
 			let stderr = '';
 			child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
 				stdout += chunk;
-				if (!modelSent && stdout.includes('Codex model ID')) {
+				if (!modelSent && stdout.includes('Select a model')) {
 					child.stdin.write(`${options.modelAnswer ?? ''}\n`);
 					modelSent = true;
 				}
@@ -250,12 +268,15 @@ process.stdin.on('end', () => {
 		const result = await runWorkflow({
 			name: 'selected-model',
 			model: null,
-			modelAnswer: 'economical-model',
+			modelAnswer: '2',
 			input: 'no\n',
 			response: JSON.stringify({ sourceText, annotations: [] })
 		});
 		expect(result.code).toBe(0);
-		expect(result.stdout).toContain('Codex model ID');
+		expect(result.stdout).toContain('Available Codex models:');
+		expect(result.stdout).toContain('1. Quality Model (quality-model) [Codex default]');
+		expect(result.stdout).toContain('2. Economical Model (economical-model)');
+		expect(result.stdout).toContain('Select a model [1]');
 		expect(result.stdout).toContain('Using Codex model: economical-model');
 		const log = JSON.parse((await readFile(result.logPath, 'utf8')).trim());
 		expect(log.args).toEqual(expect.arrayContaining(['--model', 'economical-model']));
