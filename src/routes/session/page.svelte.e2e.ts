@@ -8,7 +8,11 @@ test('reader types a bundled source through completion', async ({ page }) => {
 	await expect(page.getByRole('heading', { name: 'Catalog' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'The Window Light' })).toBeVisible();
 
-	await page.getByRole('link', { name: 'Begin reading' }).click();
+	await page
+		.getByRole('article')
+		.filter({ has: page.getByRole('heading', { name: 'The Window Light' }) })
+		.getByRole('button', { name: 'Begin reading' })
+		.click();
 	await expect(page.getByRole('region', { name: 'Typing Session' })).toBeVisible();
 	await expect(page.getByLabel('0% complete')).toBeVisible();
 
@@ -33,7 +37,7 @@ test('reader types a bundled source through completion', async ({ page }) => {
 });
 
 test('Reading Progress resumes at a word boundary and can be restarted', async ({ page }) => {
-	await page.goto('/session');
+	await page.goto('/session?source=the-window-light');
 	await expect(page.getByLabel('0% complete')).toBeVisible();
 
 	await page.keyboard.type('Mara ');
@@ -50,9 +54,9 @@ test('Reading Progress resumes at a word boundary and can be restarted', async (
 	await expect(continuation.getByText('Most recent')).toBeVisible();
 	const resumedPercentage = Math.round(('Mara opened '.length / source.length) * 100);
 	await expect(continuation.getByText(`${resumedPercentage}% complete`)).toBeVisible();
-	await expect(page.getByRole('link', { name: 'Continue reading' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Continue reading' })).toBeVisible();
 
-	await page.getByRole('link', { name: 'Continue reading' }).click();
+	await page.getByRole('button', { name: 'Continue reading' }).click();
 	await expect(page.getByLabel(`${resumedPercentage}% complete`)).toBeVisible();
 	await page.keyboard.type(source.slice('Mara opened '.length));
 	await expect(page.getByText('Reading complete')).toBeVisible();
@@ -60,7 +64,11 @@ test('Reading Progress resumes at a word boundary and can be restarted', async (
 
 	await page.getByRole('link', { name: 'Return to Catalog' }).click();
 	await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible();
-	await page.getByRole('link', { name: 'Read again' }).click();
+	await page
+		.getByRole('article')
+		.filter({ has: page.getByRole('heading', { name: 'The Window Light' }) })
+		.getByRole('button', { name: 'Read again' })
+		.click();
 	await expect(page.getByLabel('0% complete')).toBeVisible();
 });
 
@@ -70,13 +78,16 @@ test('corrupt Reading Progress does not break the reader', async ({ page }) => {
 	await page.reload();
 
 	await expect(page.getByRole('heading', { name: 'Catalog' })).toBeVisible();
-	await expect(page.getByText('0% complete')).toBeVisible();
-	await page.getByRole('link', { name: 'Begin reading' }).click();
+	const sourceCard = page
+		.getByRole('article')
+		.filter({ has: page.getByRole('heading', { name: 'The Window Light' }) });
+	await expect(sourceCard.getByText('0% complete')).toBeVisible();
+	await sourceCard.getByRole('button', { name: 'Begin reading' }).click();
 	await expect(page.getByLabel('0% complete')).toBeVisible();
 });
 
 test('Word Help supports words, phrases, missing help, and paused typing', async ({ page }) => {
-	await page.goto('/session');
+	await page.goto('/session?source=the-window-light');
 	const session = page.getByRole('region', { name: 'Typing Session' });
 	await expect(session).toBeFocused();
 

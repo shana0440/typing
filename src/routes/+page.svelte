@@ -60,9 +60,11 @@
 						: `${percentage(mostRecent.source)}% complete`}
 				</p>
 			</div>
-			<a class="primary-action" href={resolve('/session')}
-				>{mostRecent.saved?.completedAt ? 'View completed' : 'Continue reading'}</a
-			>
+			<form action={resolve('/session')} method="get">
+				<button class="primary-action" name="source" value={mostRecent.source.id} type="submit"
+					>{mostRecent.saved?.completedAt ? 'View completed' : 'Continue reading'}</button
+				>
+			</form>
 		</section>
 	{/if}
 
@@ -86,12 +88,16 @@
 					</div>
 					<div class="source-footer">
 						<span>{source.sections.length} chapter</span>
-						<a
-							class="primary-action"
-							href={resolve('/session')}
-							onclick={() => saved?.completedAt && restart(source.id)}
-							>{saved?.completedAt ? 'Read again' : saved ? 'Continue' : 'Begin reading'}</a
-						>
+						<form action={resolve('/session')} method="get">
+							<button
+								class="primary-action"
+								name="source"
+								value={source.id}
+								type="submit"
+								onclick={() => saved?.completedAt && restart(source.id)}
+								>{saved?.completedAt ? 'Read again' : saved ? 'Continue' : 'Begin reading'}</button
+							>
+						</form>
 					</div>
 				</article>
 			{/each}
