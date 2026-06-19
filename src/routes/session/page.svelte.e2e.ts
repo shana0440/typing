@@ -85,7 +85,17 @@ test('Word Help supports words, phrases, missing help, and paused typing', async
 	await page.keyboard.type('Mara ');
 	await expect(page.getByLabel('3% complete')).toBeVisible();
 
-	await page.keyboard.press('Alt+h');
+	await page.evaluate(() =>
+		window.dispatchEvent(
+			new KeyboardEvent('keydown', {
+				key: '˙',
+				code: 'KeyH',
+				altKey: true,
+				bubbles: true,
+				cancelable: true
+			})
+		)
+	);
 	let help = page.getByRole('dialog', { name: 'opened' });
 	await expect(help).toBeVisible();
 	await expect(help.getByText('在此表示把原本關著的窗戶打開，讓空氣進入。')).toBeVisible();

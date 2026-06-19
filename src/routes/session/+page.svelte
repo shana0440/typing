@@ -106,7 +106,7 @@
 			return;
 		}
 
-		if (event.altKey && event.key.toLowerCase() === 'h') {
+		if (event.altKey && (event.code === 'KeyH' || event.key.toLowerCase() === 'h')) {
 			event.preventDefault();
 			openHelp();
 			return;
