@@ -31,3 +31,46 @@ test('reader types a bundled source through completion', async ({ page }) => {
 	await expect(page.getByRole('region', { name: 'Typing Session' })).toBeVisible();
 	await expect(page.getByLabel('0% complete')).toBeVisible();
 });
+
+test('Reading Progress resumes at a word boundary and can be restarted', async ({ page }) => {
+	await page.goto('/session');
+	await expect(page.getByLabel('0% complete')).toBeVisible();
+
+	await page.keyboard.type('Mara ');
+	await expect(page.getByLabel('3% complete')).toBeVisible();
+	await page.keyboard.type('op');
+	await expect(page.getByLabel('4% complete')).toBeVisible();
+
+	await page.reload();
+	await expect(page.getByLabel('3% complete')).toBeVisible();
+	await page.keyboard.type('opened ');
+
+	await page.getByRole('link', { name: 'Return to Catalog' }).click();
+	const continuation = page.getByRole('region', { name: 'The Window Light' });
+	await expect(continuation.getByText('Most recent')).toBeVisible();
+	const resumedPercentage = Math.round(('Mara opened '.length / source.length) * 100);
+	await expect(continuation.getByText(`${resumedPercentage}% complete`)).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Continue reading' })).toBeVisible();
+
+	await page.getByRole('link', { name: 'Continue reading' }).click();
+	await expect(page.getByLabel(`${resumedPercentage}% complete`)).toBeVisible();
+	await page.keyboard.type(source.slice('Mara opened '.length));
+	await expect(page.getByText('Reading complete')).toBeVisible();
+	await expect(page.getByText(/^Completed /)).toBeVisible();
+
+	await page.getByRole('link', { name: 'Return to Catalog' }).click();
+	await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible();
+	await page.getByRole('link', { name: 'Read again' }).click();
+	await expect(page.getByLabel('0% complete')).toBeVisible();
+});
+
+test('corrupt Reading Progress does not break the reader', async ({ page }) => {
+	await page.goto('/');
+	await page.evaluate(() => localStorage.setItem('typing-practice:reading-progress', '{broken'));
+	await page.reload();
+
+	await expect(page.getByRole('heading', { name: 'Catalog' })).toBeVisible();
+	await expect(page.getByText('0% complete')).toBeVisible();
+	await page.getByRole('link', { name: 'Begin reading' }).click();
+	await expect(page.getByLabel('0% complete')).toBeVisible();
+});

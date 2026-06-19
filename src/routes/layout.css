@@ -45,7 +45,7 @@ a {
 
 .catalog-header {
 	max-width: 650px;
-	margin-bottom: 72px;
+	margin-bottom: 56px;
 }
 
 .eyebrow,
@@ -79,6 +79,32 @@ p {
 	color: #aab3ac;
 	font-size: 1.125rem;
 	line-height: 1.7;
+}
+
+.continue-card {
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 32px;
+	margin-bottom: 64px;
+	padding: 32px;
+	border: 1px solid #58675b;
+	border-radius: 4px;
+	background: #1a211c;
+}
+
+.continue-card h2 {
+	margin-bottom: 8px;
+	font-family: Georgia, serif;
+	font-size: 2rem;
+	font-weight: 400;
+}
+
+.continue-card p:last-child,
+.source-progress {
+	margin-bottom: 0;
+	color: #91a293;
+	font-size: 0.8125rem;
 }
 
 .section-heading,
@@ -132,6 +158,10 @@ p {
 	font-family: Georgia, serif;
 	font-size: 2rem;
 	font-weight: 400;
+}
+
+.source-progress {
+	margin-top: 24px;
 }
 
 .source-footer {
@@ -280,7 +310,8 @@ p {
 }
 
 .completion-view,
-.not-found {
+.not-found,
+.session-loading {
 	display: flex;
 	min-height: 100vh;
 	align-items: center;
@@ -288,6 +319,10 @@ p {
 	flex-direction: column;
 	padding: 48px;
 	text-align: center;
+}
+
+.session-loading {
+	color: #849087;
 }
 
 .completion-view h1,

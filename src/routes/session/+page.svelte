@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { catalog, findSource, sourceText } from '$lib/catalog';
+	import {
+		clearSourceProgress,
+		progressForSource,
+		readProgress,
+		saveSourceProgress
+	} from '$lib/progress';
 	import { browser } from '$app/environment';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { tick } from 'svelte';
+	import { onMount, tick } from 'svelte';
 
 	const sourceId = $derived(
 		browser ? (page.url.searchParams.get('source') ?? catalog[0].id) : catalog[0].id
@@ -13,9 +19,29 @@
 	let position = $state(0);
 	let error = $state<string | null>(null);
 	let completed = $state(false);
+	let completedAt = $state<string | null>(null);
+	let hydrated = $state(false);
 
 	const progress = $derived(text.length === 0 ? 0 : Math.round((position / text.length) * 100));
 	const sectionTitle = $derived(source?.sections[0]?.title ?? '');
+	const completionDate = $derived(
+		completedAt
+			? new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(completedAt))
+			: ''
+	);
+
+	onMount(() => {
+		if (source) {
+			const saved = progressForSource(readProgress(localStorage), source);
+			if (saved) {
+				position = saved.position;
+				completedAt = saved.completedAt;
+				completed = saved.position === text.length;
+			}
+		}
+		hydrated = true;
+		if (!completed) keepCurrentPositionVisible();
+	});
 
 	function skipParagraphBoundaries() {
 		while (text[position] === '\n') position += 1;
@@ -27,7 +53,7 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (!source || completed || event.ctrlKey || event.metaKey || event.altKey) return;
+		if (!source || !hydrated || completed || event.ctrlKey || event.metaKey || event.altKey) return;
 		if (event.key.length !== 1) return;
 
 		event.preventDefault();
@@ -37,16 +63,27 @@
 		}
 
 		error = null;
+		const positionAfterInput = position + 1;
 		position += 1;
 		skipParagraphBoundaries();
-		if (position >= text.length) completed = true;
-		else keepCurrentPositionVisible();
+		if (position >= text.length) {
+			completedAt = new Date().toISOString();
+			completed = true;
+			saveSourceProgress(localStorage, source, position, completedAt, completedAt);
+		} else {
+			if (event.key === ' ' || position > positionAfterInput) {
+				saveSourceProgress(localStorage, source, position, new Date().toISOString());
+			}
+			keepCurrentPositionVisible();
+		}
 	}
 
 	function restart() {
+		if (source) clearSourceProgress(localStorage, source.id);
 		position = 0;
 		error = null;
 		completed = false;
+		completedAt = null;
 		keepCurrentPositionVisible();
 	}
 </script>
@@ -63,11 +100,15 @@
 		<h1>Reading Source not found</h1>
 		<a class="primary-action" href={resolve('/')}>Return to Catalog</a>
 	</main>
+{:else if !hydrated}
+	<main class="session-loading" aria-live="polite">
+		<p>Loading Reading Progress...</p>
+	</main>
 {:else if completed}
 	<main class="completion-view" aria-live="polite">
 		<p class="eyebrow">Reading complete</p>
 		<h1>{source.title}</h1>
-		<p>You reached the end.</p>
+		<p>Completed <time datetime={completedAt ?? undefined}>{completionDate}</time></p>
 		<div class="completion-actions">
 			<a class="secondary-action" href={resolve('/')}>Return to Catalog</a>
 			<button class="primary-action" type="button" onclick={restart}>Read again</button>
