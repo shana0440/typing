@@ -1,3 +1,5 @@
+import catalogData from './catalog-data/catalog.json';
+
 export type ReadingSection = {
 	id: string;
 	title: string;
@@ -12,50 +14,21 @@ export type WordHelpAnnotation = {
 	sentenceEnd: number;
 	explanationZhTw: string;
 	generatedExample: string;
+	category: 'term' | 'idiom' | 'phrasal-verb' | 'contextual-meaning';
+	cefrLevel: 'B2' | 'C1' | 'C2' | null;
 };
 
 export type ReadingSource = {
 	id: string;
 	title: string;
 	author: string;
+	language: 'en';
+	originalUrl: string | null;
 	sections: ReadingSection[];
 	wordHelp: WordHelpAnnotation[];
 };
 
-export const catalog: ReadingSource[] = [
-	{
-		id: 'the-window-light',
-		title: 'The Window Light',
-		author: 'Typing Practice',
-		sections: [
-			{
-				id: 'chapter-one',
-				title: 'Chapter One',
-				text: 'Mara opened the window before sunrise. The street below was quiet, and the cool air smelled of rain.\n\nShe set a small lamp beside her book. Soon, a warm square of light rested on every page.'
-			}
-		],
-		wordHelp: [
-			{
-				id: 'opened',
-				start: 5,
-				end: 11,
-				sentenceStart: 0,
-				sentenceEnd: 38,
-				explanationZhTw: '在此表示把原本關著的窗戶打開，讓空氣進入。',
-				generatedExample: 'She opened the door to let the evening breeze inside.'
-			},
-			{
-				id: 'before-sunrise',
-				start: 23,
-				end: 37,
-				sentenceStart: 0,
-				sentenceEnd: 38,
-				explanationZhTw: '「before sunrise」指日出以前，也就是天色仍暗的清晨時段。',
-				generatedExample: 'The hikers left camp before sunrise to avoid the heat.'
-			}
-		]
-	}
-];
+export const catalog: ReadingSource[] = catalogData as ReadingSource[];
 
 export function findSource(id: string | null): ReadingSource | undefined {
 	return catalog.find((source) => source.id === id);

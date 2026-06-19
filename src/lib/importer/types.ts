@@ -11,7 +11,7 @@ export type ImportSection = {
 
 export type ImportDraft = {
 	schemaVersion: 1;
-	status: 'draft';
+	status: 'draft' | 'analyzed';
 	id: string;
 	metadata: {
 		title: string;
@@ -22,6 +22,18 @@ export type ImportDraft = {
 	source: {
 		sections: ImportSection[];
 	};
-	annotations: [];
-	redistributionConfirmed: false;
+	annotations: ImportAnnotation[];
+	redistributionConfirmed: boolean;
+};
+
+export type ImportAnnotation = {
+	id: string;
+	start: number;
+	end: number;
+	sentenceStart: number;
+	sentenceEnd: number;
+	explanationZhTw: string;
+	generatedExample: string;
+	category: 'term' | 'idiom' | 'phrasal-verb' | 'contextual-meaning';
+	cefrLevel: 'B2' | 'C1' | 'C2' | null;
 };

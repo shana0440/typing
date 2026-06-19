@@ -50,3 +50,11 @@ bun run import:source https://example.com/article
 ```
 
 The command writes a deterministic JSON draft under `.imports/drafts/`. It removes page chrome with Mozilla Readability, retains structured source prose for inspection, and does not add anything to the Catalog. PDF, authenticated, paywalled, non-English, unreachable, and incomplete sources are rejected.
+
+Analyze and review a retained draft with the locally authenticated Codex CLI:
+
+```sh
+bun run publish:draft .imports/drafts/<draft-id>.json
+```
+
+Codex runs as a read-only, ephemeral subprocess and returns schema-constrained annotations. The command opens a local preview, then requires separate confirmation that the draft is accurate and authorized for redistribution. Only both confirmations Publish deterministic static Catalog data; the command never commits, pushes, or deploys.
