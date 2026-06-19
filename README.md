@@ -40,3 +40,13 @@ npm run build
 You can preview the production build with `npm run preview`.
 
 > To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+
+## Creating an Import Draft
+
+Import one complete, publicly reachable English HTML page for review:
+
+```sh
+bun run import:source https://example.com/article
+```
+
+The command writes a deterministic JSON draft under `.imports/drafts/`. It removes page chrome with Mozilla Readability, retains structured source prose for inspection, and does not add anything to the Catalog. PDF, authenticated, paywalled, non-English, unreachable, and incomplete sources are rejected.
