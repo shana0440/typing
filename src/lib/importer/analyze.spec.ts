@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { validateAnalysis } from './analyze.ts';
-import { draftSourceText } from './draft.ts';
+import { validateBlockAnalysis } from './analyze.ts';
+import { draftSourceBlocks, draftSourceText } from './draft.ts';
 import type { ImportDraft } from './types.ts';
 
 describe('Codex annotation validation', () => {
@@ -29,8 +29,8 @@ describe('Codex annotation validation', () => {
 			redistributionConfirmed: false
 		};
 		const start = draftSourceText(draft).indexOf('intricate');
-		const annotations = validateAnalysis(draft, {
-			source: draft.source,
+		const annotations = validateBlockAnalysis(draftSourceBlocks(draft)[0], {
+			sourceText: text,
 			annotations: [
 				{
 					id: 'intricate',

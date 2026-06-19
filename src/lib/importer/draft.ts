@@ -38,7 +38,31 @@ export async function writeImportDraft(path: string, draft: ImportDraft): Promis
 }
 
 export function draftSourceText(draft: ImportDraft): string {
-	return draft.source.sections
-		.map((section) => section.blocks.map((block) => block.text).join('\n\n'))
+	return draftSourceBlocks(draft)
+		.map((block) => block.text)
 		.join('\n\n');
+}
+
+export type DraftSourceBlock = {
+	key: string;
+	text: string;
+	globalStart: number;
+	sectionHeading: string | null;
+};
+
+export function draftSourceBlocks(draft: ImportDraft): DraftSourceBlock[] {
+	const blocks: DraftSourceBlock[] = [];
+	let globalStart = 0;
+	for (const section of draft.source.sections) {
+		for (const [index, block] of section.blocks.entries()) {
+			blocks.push({
+				key: `${section.id}:${index}`,
+				text: block.text,
+				globalStart,
+				sectionHeading: section.heading
+			});
+			globalStart += block.text.length + 2;
+		}
+	}
+	return blocks;
 }

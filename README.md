@@ -57,4 +57,6 @@ Analyze and review a retained draft with the locally authenticated Codex CLI:
 bun run publish:draft .imports/drafts/<draft-id>.json
 ```
 
-Codex runs as a read-only, ephemeral subprocess and returns schema-constrained annotations. The command opens a local preview, then requires separate confirmation that the draft is accurate and authorized for redistribution. Only both confirmations Publish deterministic static Catalog data; the command never commits, pushes, or deploys.
+The command prompts for a Codex model ID before analysis; leave it blank to use the configured default or pass `--model <model>`. Codex analyzes one paragraph at a time as a read-only, ephemeral subprocess. Every validated paragraph is checkpointed in the retained draft, so a later run resumes unfinished work after interruption or token exhaustion. A determinate progress bar shows saved paragraphs.
+
+After analysis, the command opens a local preview and requires separate confirmation that the draft is accurate and authorized for redistribution. Only both confirmations Publish deterministic static Catalog data; the command never commits, pushes, or deploys.

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -29,6 +29,7 @@ const validAnnotation = {
 	category: 'term' as const,
 	cefrLevel: 'B2' as const
 };
+const publishedAnnotation = { ...validAnnotation, id: 'section-1:0-intricate' };
 
 function newDraft(): ImportDraft {
 	return {
@@ -57,16 +58,22 @@ describe('Analyze and Publish workflow', () => {
 		await writeFile(
 			fakeCodex,
 			`#!/usr/bin/env node
-import { writeFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
 let prompt = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => prompt += chunk);
 process.stdin.on('end', () => {
-  if (process.env.FAKE_CODEX_LOG) writeFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ args: process.argv.slice(2), prompt }));
-  if (process.env.FAKE_CODEX_FAIL === '1') { console.error('simulated Codex failure'); process.exit(2); }
+  if (process.env.FAKE_CODEX_LOG) appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ args: process.argv.slice(2), prompt }) + '\\n');
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: 'fake-thread' }));
+  console.log(JSON.stringify({ type: 'turn.started' }));
+  console.log(JSON.stringify({ type: 'item.started', item: { type: 'agent_message' } }));
+  console.log(JSON.stringify({ type: 'turn.completed' }));
+  if (process.env.FAKE_CODEX_FAIL === '1' || (process.env.FAKE_CODEX_FAIL_ON_TEXT && prompt.includes(process.env.FAKE_CODEX_FAIL_ON_TEXT))) { console.error('simulated Codex failure'); process.exit(2); }
   const args = process.argv.slice(2);
   const outputPath = args[args.indexOf('-o') + 1];
-  writeFileSync(outputPath, process.env.FAKE_CODEX_RESPONSE ?? '');
+  const input = JSON.parse(prompt.trim().split('\\n\\n').at(-1));
+  const response = process.env.FAKE_CODEX_DYNAMIC === '1' ? JSON.stringify({ sourceText: input.sourceText, annotations: [] }) : (process.env.FAKE_CODEX_RESPONSE ?? '');
+  writeFileSync(outputPath, response);
 });
 `,
 			'utf8'
@@ -79,24 +86,27 @@ process.stdin.on('end', () => {
 	});
 
 	async function runWorkflow(options: {
+		draft?: ImportDraft;
 		input?: string;
+		model?: string | null;
+		modelAnswer?: string;
+		preserveDraft?: boolean;
 		response?: string;
 		fail?: boolean;
+		failOnText?: string;
+		dynamic?: boolean;
 		name: string;
 	}) {
 		const testDirectory = join(directory, options.name);
 		const draftPath = join(testDirectory, 'draft.json');
 		const catalogPath = join(testDirectory, 'catalog.json');
 		const logPath = join(testDirectory, 'codex-log.json');
-		await writeFile(draftPath, `${JSON.stringify(newDraft(), null, 2)}\n`, { flag: 'w' }).catch(
-			async (error: NodeJS.ErrnoException) => {
-				if (error.code !== 'ENOENT') throw error;
-				const { mkdir } = await import('node:fs/promises');
-				await mkdir(testDirectory, { recursive: true });
-				await writeFile(draftPath, `${JSON.stringify(newDraft(), null, 2)}\n`);
-			}
-		);
-		await writeFile(catalogPath, '[]\n');
+		await mkdir(testDirectory, { recursive: true });
+		if (!options.preserveDraft) {
+			await writeFile(draftPath, `${JSON.stringify(options.draft ?? newDraft(), null, 2)}\n`);
+			await writeFile(catalogPath, '[]\n');
+			await rm(logPath, { force: true });
+		}
 
 		return new Promise<{
 			code: number | null;
@@ -106,49 +116,61 @@ process.stdin.on('end', () => {
 			catalogPath: string;
 			logPath: string;
 		}>((done) => {
+			const model = options.model === undefined ? 'test-model' : options.model;
 			const answers = (options.input ?? '')
 				.split('\n')
 				.map((answer) => answer.trim())
 				.filter(Boolean);
 			let answersSent = 0;
-			const child = spawn(
-				'bun',
-				['run', 'publish:draft', draftPath, '--catalog-file', catalogPath],
-				{
-					cwd: projectRoot,
-					env: {
-						...process.env,
-						CODEX_COMMAND: fakeCodex,
-						FAKE_CODEX_RESPONSE: options.response ?? '',
-						FAKE_CODEX_FAIL: options.fail ? '1' : '0',
-						FAKE_CODEX_LOG: logPath,
-						IMPORT_PREVIEW_NO_OPEN: '1'
-					},
-					stdio: ['pipe', 'pipe', 'pipe']
-				}
-			);
+			let modelSent = model !== null;
+			const command = ['run', 'publish:draft', draftPath];
+			if (model) command.push('--model', model);
+			command.push('--catalog-file', catalogPath);
+			const child = spawn('bun', command, {
+				cwd: projectRoot,
+				env: {
+					...process.env,
+					CODEX_COMMAND: fakeCodex,
+					FAKE_CODEX_RESPONSE: options.response ?? '',
+					FAKE_CODEX_FAIL: options.fail ? '1' : '0',
+					FAKE_CODEX_FAIL_ON_TEXT: options.failOnText ?? '',
+					FAKE_CODEX_DYNAMIC: options.dynamic ? '1' : '0',
+					FAKE_CODEX_LOG: logPath,
+					IMPORT_PREVIEW_NO_OPEN: '1'
+				},
+				stdio: ['pipe', 'pipe', 'pipe']
+			});
 			let stdout = '';
 			let stderr = '';
 			child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
 				stdout += chunk;
+				if (!modelSent && stdout.includes('Codex model ID')) {
+					child.stdin.write(`${options.modelAnswer ?? ''}\n`);
+					modelSent = true;
+				}
 				const prompts = stdout.match(/Type "yes" to confirm:/g)?.length ?? 0;
 				while (answersSent < prompts && answersSent < answers.length) {
 					child.stdin.write(`${answers[answersSent]}\n`);
 					answersSent += 1;
-					if (answersSent === answers.length) child.stdin.end();
+					if (answersSent === answers.length && modelSent) child.stdin.end();
 				}
 			});
 			child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
 			child.on('close', (code) => done({ code, stdout, stderr, draftPath, catalogPath, logPath }));
-			if (answers.length === 0) child.stdin.end();
+			if (answers.length === 0 && modelSent) child.stdin.end();
 		});
 	}
 
 	it('publishes deterministic static Catalog data after both confirmations', async () => {
-		const response = JSON.stringify({ source, annotations: [validAnnotation] });
+		const response = JSON.stringify({ sourceText, annotations: [validAnnotation] });
 		const result = await runWorkflow({ name: 'approved', input: 'yes\nyes\n', response });
 
 		expect(result.code).toBe(0);
+		expect(result.stdout).toContain('Codex started');
+		expect(result.stdout).toContain('0/1 (0%)');
+		expect(result.stdout).toContain('paragraph 1/1');
+		expect(result.stdout).toContain('1/1 (100%)');
+		expect(result.stdout).toContain('Checkpoint saved');
 		expect(result.stdout).toContain('Review the complete Import Draft at http://127.0.0.1:');
 		expect(result.stdout).toContain('Files were written only');
 		const catalogArtifact = await readFile(result.catalogPath, 'utf8');
@@ -158,17 +180,17 @@ process.stdin.on('end', () => {
 			id: 'a-careful-test-123456789abc',
 			title: 'A Careful Test',
 			originalUrl: 'https://example.com/careful-test',
-			wordHelp: [validAnnotation]
+			wordHelp: [publishedAnnotation]
 		});
 		expect(catalog[0].sections[0].text).toBe(sourceText);
 		const retainedDraft = JSON.parse(await readFile(result.draftPath, 'utf8')) as ImportDraft;
 		expect(retainedDraft).toMatchObject({
 			status: 'analyzed',
 			redistributionConfirmed: true,
-			annotations: [validAnnotation]
+			annotations: [publishedAnnotation]
 		});
 
-		const codexLog = JSON.parse(await readFile(result.logPath, 'utf8'));
+		const codexLog = JSON.parse((await readFile(result.logPath, 'utf8')).trim());
 		expect(codexLog.args).toEqual(
 			expect.arrayContaining([
 				'exec',
@@ -179,7 +201,14 @@ process.stdin.on('end', () => {
 				'-o'
 			])
 		);
-		expect(codexLog.prompt).toContain(JSON.stringify({ source }));
+		expect(codexLog.args).toEqual(expect.arrayContaining(['--model', 'test-model']));
+		expect(codexLog.prompt).toContain(
+			JSON.stringify({
+				title: 'A Careful Test',
+				sectionHeading: 'A careful test',
+				sourceText
+			})
+		);
 
 		const second = await runWorkflow({ name: 'approved-again', input: 'yes\nyes\n', response });
 		expect(await readFile(second.catalogPath, 'utf8')).toBe(catalogArtifact);
@@ -189,7 +218,7 @@ process.stdin.on('end', () => {
 		const result = await runWorkflow({
 			name: 'rejected',
 			input: 'no\n',
-			response: JSON.stringify({ source, annotations: [validAnnotation] })
+			response: JSON.stringify({ sourceText, annotations: [validAnnotation] })
 		});
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain('Publish rejected');
@@ -197,7 +226,7 @@ process.stdin.on('end', () => {
 		expect(JSON.parse(await readFile(result.draftPath, 'utf8'))).toMatchObject({
 			status: 'analyzed',
 			redistributionConfirmed: false,
-			annotations: [validAnnotation]
+			annotations: [publishedAnnotation]
 		});
 	});
 
@@ -205,7 +234,7 @@ process.stdin.on('end', () => {
 		const result = await runWorkflow({
 			name: 'unauthorized',
 			input: 'yes\nno\n',
-			response: JSON.stringify({ source, annotations: [validAnnotation] })
+			response: JSON.stringify({ sourceText, annotations: [validAnnotation] })
 		});
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain('Are you authorized to redistribute');
@@ -217,6 +246,21 @@ process.stdin.on('end', () => {
 		});
 	});
 
+	it('prompts for and applies a model before analysis', async () => {
+		const result = await runWorkflow({
+			name: 'selected-model',
+			model: null,
+			modelAnswer: 'economical-model',
+			input: 'no\n',
+			response: JSON.stringify({ sourceText, annotations: [] })
+		});
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain('Codex model ID');
+		expect(result.stdout).toContain('Using Codex model: economical-model');
+		const log = JSON.parse((await readFile(result.logPath, 'utf8')).trim());
+		expect(log.args).toEqual(expect.arrayContaining(['--model', 'economical-model']));
+	});
+
 	it('fails closed when the Codex subprocess fails', async () => {
 		const result = await runWorkflow({ name: 'subprocess-failure', fail: true });
 		expect(result.code).toBe(1);
@@ -225,17 +269,60 @@ process.stdin.on('end', () => {
 		expect(JSON.parse(await readFile(result.draftPath, 'utf8')).status).toBe('draft');
 	});
 
+	it('checkpoints each paragraph and resumes after token or subprocess failure', async () => {
+		const secondText =
+			'A second paragraph should be analyzed only after the saved first checkpoint.';
+		const draft = newDraft();
+		draft.source.sections[0].blocks.push({ type: 'paragraph', text: secondText });
+		const interrupted = await runWorkflow({
+			name: 'resumable',
+			draft,
+			dynamic: true,
+			failOnText: secondText
+		});
+		expect(interrupted.code).toBe(1);
+		expect(interrupted.stdout).toContain('1/2 (50%)');
+		expect(interrupted.stdout).toContain('Paused; checkpoint retained');
+		const checkpoint = JSON.parse(await readFile(interrupted.draftPath, 'utf8')) as ImportDraft;
+		expect(checkpoint).toMatchObject({
+			status: 'draft',
+			analysisProgress: {
+				completedBlocks: ['section-1:0'],
+				lastModel: 'test-model'
+			}
+		});
+
+		const resumed = await runWorkflow({
+			name: 'resumable',
+			preserveDraft: true,
+			dynamic: true,
+			input: 'no\n'
+		});
+		expect(resumed.code).toBe(0);
+		expect(resumed.stdout).toContain('1/2 (50%)');
+		expect(resumed.stdout).toContain('2/2 (100%)');
+		const completed = JSON.parse(await readFile(resumed.draftPath, 'utf8')) as ImportDraft;
+		expect(completed.analysisProgress?.completedBlocks).toEqual(['section-1:0', 'section-1:1']);
+
+		const logs = (await readFile(resumed.logPath, 'utf8'))
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line) as { prompt: string });
+		expect(logs.filter((entry) => entry.prompt.includes(sourceText))).toHaveLength(1);
+		expect(logs.filter((entry) => entry.prompt.includes(secondText))).toHaveLength(2);
+	});
+
 	it.each([
 		['malformed', '{not json', 'malformed JSON'],
 		[
 			'missing-fields',
-			JSON.stringify({ source, annotations: [{ id: 'missing' }] }),
+			JSON.stringify({ sourceText, annotations: [{ id: 'missing' }] }),
 			'missing or invalid fields'
 		],
 		[
 			'invalid-span',
 			JSON.stringify({
-				source,
+				sourceText,
 				annotations: [{ ...validAnnotation, end: sourceText.length + 1 }]
 			}),
 			'invalid source span'
@@ -243,7 +330,7 @@ process.stdin.on('end', () => {
 		[
 			'overlapping-spans',
 			JSON.stringify({
-				source,
+				sourceText,
 				annotations: [validAnnotation, { ...validAnnotation, id: 'overlap', start: 8, end: 15 }]
 			}),
 			'overlapping annotation spans'
@@ -251,14 +338,7 @@ process.stdin.on('end', () => {
 		[
 			'source-mutation',
 			JSON.stringify({
-				source: {
-					sections: [
-						{
-							...source.sections[0],
-							blocks: [{ type: 'paragraph', text: 'Rewritten source content.' }]
-						}
-					]
-				},
+				sourceText: 'Rewritten source content.',
 				annotations: []
 			}),
 			'mutate or replace immutable source content'

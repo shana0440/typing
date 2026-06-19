@@ -45,6 +45,6 @@ export async function publishDraft(draft: ImportDraft, catalogPath: string): Pro
 	);
 	await mkdir(dirname(catalogPath), { recursive: true });
 	const temporaryPath = `${catalogPath}.tmp`;
-	await writeFile(temporaryPath, `${JSON.stringify(nextCatalog, null, 2)}\n`, 'utf8');
+	await writeFile(temporaryPath, `${JSON.stringify(nextCatalog, null, '\t')}\n`, 'utf8');
 	await rename(temporaryPath, catalogPath);
 }

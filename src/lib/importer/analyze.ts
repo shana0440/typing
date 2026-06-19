@@ -1,9 +1,10 @@
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
-import { draftSourceText } from './draft.ts';
+import { draftSourceBlocks, type DraftSourceBlock } from './draft.ts';
 import { ImportError } from './extract.ts';
 import type { ImportAnnotation, ImportDraft } from './types.ts';
 
@@ -24,40 +25,7 @@ const annotationKeys = [
 const analysisSchema = {
 	type: 'object',
 	properties: {
-		source: {
-			type: 'object',
-			properties: {
-				sections: {
-					type: 'array',
-					items: {
-						type: 'object',
-						properties: {
-							id: { type: 'string' },
-							heading: { type: ['string', 'null'] },
-							blocks: {
-								type: 'array',
-								items: {
-									type: 'object',
-									properties: {
-										type: {
-											type: 'string',
-											enum: ['paragraph', 'blockquote', 'preformatted', 'list-item']
-										},
-										text: { type: 'string' }
-									},
-									required: ['type', 'text'],
-									additionalProperties: false
-								}
-							}
-						},
-						required: ['id', 'heading', 'blocks'],
-						additionalProperties: false
-					}
-				}
-			},
-			required: ['sections'],
-			additionalProperties: false
-		},
+		sourceText: { type: 'string' },
 		annotations: {
 			type: 'array',
 			items: {
@@ -73,36 +41,66 @@ const analysisSchema = {
 					category: { type: 'string', enum: categories },
 					cefrLevel: { type: ['string', 'null'], enum: [...cefrLevels, null] }
 				},
-				required: [
-					'id',
-					'start',
-					'end',
-					'sentenceStart',
-					'sentenceEnd',
-					'explanationZhTw',
-					'generatedExample',
-					'category',
-					'cefrLevel'
-				],
+				required: annotationKeys,
 				additionalProperties: false
 			}
 		}
 	},
-	required: ['source', 'annotations'],
+	required: ['sourceText', 'annotations'],
 	additionalProperties: false
 };
 
-type AnalysisOutput = {
-	source: ImportDraft['source'];
-	annotations: unknown[];
+type BlockAnalysisOutput = { sourceText: string; annotations: unknown[] };
+export type AnalysisCheckpoint = NonNullable<ImportDraft['analysisProgress']> & {
+	annotations: ImportAnnotation[];
+};
+export type AnalysisOptions = {
+	codexCommand?: string;
+	model?: string;
+	onEvent?: (eventType: string) => void;
+	onBlockStart?: (index: number, total: number) => void;
+	onCheckpoint?: (checkpoint: AnalysisCheckpoint) => Promise<void>;
 };
 
-function runCodex(command: string, args: string[], prompt: string): Promise<void> {
+function sourceDigest(draft: ImportDraft): string {
+	return createHash('sha256').update(JSON.stringify(draft.source)).digest('hex');
+}
+
+export function completedBlockCount(draft: ImportDraft): number {
+	if (draft.analysisProgress?.sourceDigest !== sourceDigest(draft)) return 0;
+	const blockKeys = new Set(draftSourceBlocks(draft).map((block) => block.key));
+	return draft.analysisProgress.completedBlocks.filter((key) => blockKeys.has(key)).length;
+}
+
+function runCodex(
+	command: string,
+	args: string[],
+	prompt: string,
+	onProgress?: (eventType: string) => void
+): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(command, args, { stdio: ['pipe', 'ignore', 'pipe'] });
+		const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
 		let stderr = '';
+		let stdout = '';
+		child.stdout.setEncoding('utf8');
+		child.stdout.on('data', (chunk: string) => {
+			stdout += chunk;
+			const lines = stdout.split('\n');
+			stdout = lines.pop() ?? '';
+			for (const line of lines) {
+				try {
+					const event = JSON.parse(line) as { type?: unknown };
+					if (typeof event.type === 'string') onProgress?.(event.type);
+				} catch {
+					// Progress events are advisory; final schema validation remains authoritative.
+				}
+			}
+		});
 		child.stderr.setEncoding('utf8');
 		child.stderr.on('data', (chunk: string) => (stderr += chunk));
+		child.stdin.on('error', () => {
+			// The process error/exit handler below reports the actionable failure.
+		});
 		child.on('error', (error) =>
 			reject(new ImportError(`Could not start Codex CLI: ${error.message}`))
 		);
@@ -121,7 +119,7 @@ function isInteger(value: unknown): value is number {
 	return typeof value === 'number' && Number.isSafeInteger(value);
 }
 
-function validateAnnotation(value: unknown, text: string): ImportAnnotation {
+function validateLocalAnnotation(value: unknown, text: string): ImportAnnotation {
 	if (!value || typeof value !== 'object')
 		throw new ImportError('Codex returned a malformed annotation.');
 	const annotation = value as Partial<ImportAnnotation>;
@@ -162,76 +160,116 @@ function validateAnnotation(value: unknown, text: string): ImportAnnotation {
 	return annotation as ImportAnnotation;
 }
 
-export function validateAnalysis(draft: ImportDraft, value: unknown): ImportAnnotation[] {
+export function validateBlockAnalysis(block: DraftSourceBlock, value: unknown): ImportAnnotation[] {
 	if (!value || typeof value !== 'object')
 		throw new ImportError('Codex returned malformed JSON output.');
-	const output = value as Partial<AnalysisOutput>;
-	if (!isDeepStrictEqual(Object.keys(value).sort(), ['annotations', 'source'])) {
+	if (!isDeepStrictEqual(Object.keys(value).sort(), ['annotations', 'sourceText'])) {
 		throw new ImportError('Codex returned malformed JSON output.');
 	}
-	if (!isDeepStrictEqual(output.source, draft.source)) {
+	const output = value as Partial<BlockAnalysisOutput>;
+	if (output.sourceText !== block.text) {
 		throw new ImportError('Codex attempted to mutate or replace immutable source content.');
 	}
 	if (!Array.isArray(output.annotations))
 		throw new ImportError('Codex output is missing annotations.');
 
-	const text = draftSourceText(draft);
-	const annotations = output.annotations.map((annotation) => validateAnnotation(annotation, text));
-	const ids = new Set<string>();
-	for (const annotation of [...annotations].sort((left, right) => left.start - right.start)) {
-		if (ids.has(annotation.id))
-			throw new ImportError(`Duplicate annotation id "${annotation.id}".`);
-		ids.add(annotation.id);
-	}
-	const byPosition = [...annotations].sort((left, right) => left.start - right.start);
+	const local = output.annotations.map((annotation) =>
+		validateLocalAnnotation(annotation, block.text)
+	);
+	const byPosition = [...local].sort((left, right) => left.start - right.start);
 	for (let index = 1; index < byPosition.length; index += 1) {
 		if (byPosition[index].start < byPosition[index - 1].end) {
 			throw new ImportError('Codex returned overlapping annotation spans.');
 		}
 	}
-	return byPosition;
+	return byPosition.map((annotation) => ({
+		...annotation,
+		id: `${block.key}-${annotation.id}`,
+		start: annotation.start + block.globalStart,
+		end: annotation.end + block.globalStart,
+		sentenceStart: annotation.sentenceStart + block.globalStart,
+		sentenceEnd: annotation.sentenceEnd + block.globalStart
+	}));
 }
 
 export async function analyzeImportDraft(
 	draft: ImportDraft,
-	codexCommand = process.env.CODEX_COMMAND || 'codex'
-): Promise<ImportAnnotation[]> {
+	options: AnalysisOptions = {}
+): Promise<AnalysisCheckpoint> {
+	const blocks = draftSourceBlocks(draft);
+	const digest = sourceDigest(draft);
+	const resumable = draft.analysisProgress?.sourceDigest === digest;
+	const blockKeys = new Set(blocks.map((block) => block.key));
+	const completedBlocks = resumable
+		? [...new Set(draft.analysisProgress!.completedBlocks.filter((key) => blockKeys.has(key)))]
+		: [];
+	let annotations = resumable ? [...draft.annotations] : [];
+	const completed = new Set(completedBlocks);
 	const directory = await mkdtemp(join(tmpdir(), 'typing-codex-'));
 	const schemaPath = join(directory, 'analysis-schema.json');
 	const outputPath = join(directory, 'analysis.json');
 	try {
 		await writeFile(schemaPath, JSON.stringify(analysisSchema), 'utf8');
-		const prompt = [
-			'Analyze this exact English Reading Source for contextual Word Help.',
-			'Identify CEFR B2+ terms, idioms, phrasal verbs, and contextually unusual meanings.',
-			'Return Traditional Chinese explanations and one generated English example for each annotation.',
-			'Offsets use JavaScript UTF-16 string indices in the canonical source text formed by joining blocks and sections with two newline characters.',
-			'Copy the source object byte-for-byte in meaning and structure. Never rewrite, correct, summarize, or mutate it.',
-			JSON.stringify({ source: draft.source })
-		].join('\n\n');
-		await runCodex(
-			codexCommand,
-			[
+		for (const [index, block] of blocks.entries()) {
+			if (completed.has(block.key)) continue;
+			options.onBlockStart?.(index, blocks.length);
+			const prompt = [
+				'Analyze this exact English paragraph for contextual Word Help.',
+				'Identify CEFR B2+ terms, idioms, phrasal verbs, and contextually unusual meanings.',
+				'Return Traditional Chinese explanations and one generated English example for each annotation.',
+				'All offsets are JavaScript UTF-16 indices local to sourceText.',
+				'Copy sourceText exactly. Never rewrite, correct, summarize, or mutate it.',
+				JSON.stringify({
+					title: draft.metadata.title,
+					sectionHeading: block.sectionHeading,
+					sourceText: block.text
+				})
+			].join('\n\n');
+			await rm(outputPath, { force: true });
+			const args = [
 				'exec',
+				'--json',
 				'--ephemeral',
 				'--sandbox',
 				'read-only',
 				'--output-schema',
 				schemaPath,
 				'-o',
-				outputPath,
-				'-'
-			],
-			prompt
-		);
+				outputPath
+			];
+			if (options.model) args.push('--model', options.model);
+			args.push('-');
+			await runCodex(
+				options.codexCommand ?? process.env.CODEX_COMMAND ?? 'codex',
+				args,
+				prompt,
+				options.onEvent
+			);
 
-		let output: unknown;
-		try {
-			output = JSON.parse(await readFile(outputPath, 'utf8'));
-		} catch {
-			throw new ImportError('Codex returned malformed JSON output.');
+			let output: unknown;
+			try {
+				output = JSON.parse(await readFile(outputPath, 'utf8'));
+			} catch {
+				throw new ImportError('Codex returned malformed JSON output.');
+			}
+			annotations = [...annotations, ...validateBlockAnalysis(block, output)].sort(
+				(left, right) => left.start - right.start
+			);
+			completed.add(block.key);
+			const checkpoint: AnalysisCheckpoint = {
+				sourceDigest: digest,
+				completedBlocks: [...completed],
+				lastModel: options.model ?? null,
+				annotations
+			};
+			await options.onCheckpoint?.(checkpoint);
 		}
-		return validateAnalysis(draft, output);
+		return {
+			sourceDigest: digest,
+			completedBlocks: [...completed],
+			lastModel: options.model ?? draft.analysisProgress?.lastModel ?? null,
+			annotations
+		};
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}

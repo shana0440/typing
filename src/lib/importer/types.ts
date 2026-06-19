@@ -23,6 +23,11 @@ export type ImportDraft = {
 		sections: ImportSection[];
 	};
 	annotations: ImportAnnotation[];
+	analysisProgress?: {
+		sourceDigest: string;
+		completedBlocks: string[];
+		lastModel: string | null;
+	};
 	redistributionConfirmed: boolean;
 };
 
