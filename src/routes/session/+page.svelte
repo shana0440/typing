@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { catalog, findSource, sourceText } from '$lib/catalog';
+	import { catalog, findSource, sourceText, type WordHelpAnnotation } from '$lib/catalog';
 	import {
 		clearSourceProgress,
 		progressForSource,
@@ -21,6 +21,10 @@
 	let completed = $state(false);
 	let completedAt = $state<string | null>(null);
 	let hydrated = $state(false);
+	let activeHelp = $state<WordHelpAnnotation | null>(null);
+	let helpMessage = $state<string | null>(null);
+	let typingStage = $state<HTMLElement>();
+	let helpPanel = $state<HTMLElement>();
 
 	const progress = $derived(text.length === 0 ? 0 : Math.round((position / text.length) * 100));
 	const sectionTitle = $derived(source?.sections[0]?.title ?? '');
@@ -28,6 +32,15 @@
 		completedAt
 			? new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(completedAt))
 			: ''
+	);
+	const helpSentence = $derived(
+		activeHelp
+			? {
+					before: text.slice(activeHelp.sentenceStart, activeHelp.start),
+					term: text.slice(activeHelp.start, activeHelp.end),
+					after: text.slice(activeHelp.end, activeHelp.sentenceEnd)
+				}
+			: null
 	);
 
 	onMount(() => {
@@ -40,7 +53,7 @@
 			}
 		}
 		hydrated = true;
-		if (!completed) keepCurrentPositionVisible();
+		if (!completed) focusTypingStage();
 	});
 
 	function skipParagraphBoundaries() {
@@ -52,17 +65,65 @@
 		document.querySelector('.current-character')?.scrollIntoView({ block: 'center' });
 	}
 
+	async function focusTypingStage() {
+		await keepCurrentPositionVisible();
+		typingStage?.focus({ preventScroll: true });
+	}
+
+	async function openHelp() {
+		if (!source) return;
+		const annotation = source.wordHelp.find(
+			(candidate) => position >= candidate.start && position < candidate.end
+		);
+		if (!annotation) {
+			helpMessage = 'No Word Help was prepared for this position.';
+			return;
+		}
+
+		helpMessage = null;
+		error = null;
+		activeHelp = annotation;
+		await tick();
+		helpPanel?.focus({ preventScroll: true });
+	}
+
+	function closeHelp() {
+		activeHelp = null;
+		focusTypingStage();
+	}
+
 	function handleKeydown(event: KeyboardEvent) {
-		if (!source || !hydrated || completed || event.ctrlKey || event.metaKey || event.altKey) return;
+		if (!source || !hydrated || completed) return;
+		if (event.ctrlKey || event.metaKey) return;
+
+		if (activeHelp) {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				closeHelp();
+			} else if (event.key.length === 1) {
+				event.preventDefault();
+			}
+			return;
+		}
+
+		if (event.altKey && event.key.toLowerCase() === 'h') {
+			event.preventDefault();
+			openHelp();
+			return;
+		}
+
+		if (event.altKey) return;
 		if (event.key.length !== 1) return;
 
 		event.preventDefault();
 		if (event.key !== text[position]) {
 			error = event.key;
+			helpMessage = null;
 			return;
 		}
 
 		error = null;
+		helpMessage = null;
 		const positionAfterInput = position + 1;
 		position += 1;
 		skipParagraphBoundaries();
@@ -84,7 +145,9 @@
 		error = null;
 		completed = false;
 		completedAt = null;
-		keepCurrentPositionVisible();
+		activeHelp = null;
+		helpMessage = null;
+		focusTypingStage();
 	}
 </script>
 
@@ -130,7 +193,7 @@
 			</div>
 		</header>
 
-		<section class="typing-stage" aria-label="Typing Session">
+		<section class="typing-stage" aria-label="Typing Session" tabindex="-1" bind:this={typingStage}>
 			<p class="keyboard-hint">Type to continue</p>
 			<div class="text-viewport">
 				<div class="source-text" aria-label="Reading Source text">
@@ -147,9 +210,51 @@
 					{/each}
 				</div>
 			</div>
-			<p class:error-visible={error !== null} class="error-message" role="status">
-				{error === null ? ' ' : `Expected ${JSON.stringify(text[position])}. Try again.`}
+			<p
+				class:error-visible={error !== null || helpMessage !== null}
+				class="error-message"
+				role="status"
+			>
+				{error !== null
+					? `Expected ${JSON.stringify(text[position])}. Try again.`
+					: (helpMessage ?? ' ')}
 			</p>
 		</section>
+
+		{#if activeHelp && helpSentence}
+			<div class="help-backdrop" aria-hidden="true"></div>
+			<div
+				class="word-help"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="word-help-title"
+				tabindex="-1"
+				bind:this={helpPanel}
+			>
+				<header class="word-help-header">
+					<div>
+						<p class="eyebrow">Word Help</p>
+						<h2 id="word-help-title">{helpSentence.term}</h2>
+					</div>
+					<button class="close-help" type="button" onclick={closeHelp} aria-label="Close Word Help"
+						>Escape</button
+					>
+				</header>
+
+				<p class="help-explanation" lang="zh-Hant">{activeHelp.explanationZhTw}</p>
+
+				<div class="help-section">
+					<h3>In this source</h3>
+					<blockquote>
+						{helpSentence.before}<mark>{helpSentence.term}</mark>{helpSentence.after}
+					</blockquote>
+				</div>
+
+				<div class="help-section">
+					<h3>Generated example</h3>
+					<p>{activeHelp.generatedExample}</p>
+				</div>
+			</div>
+		{/if}
 	</main>
 {/if}

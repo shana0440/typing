@@ -258,6 +258,7 @@ p {
 	align-self: center;
 	justify-self: center;
 	flex-direction: column;
+	outline: none;
 }
 
 .keyboard-hint {
@@ -307,6 +308,92 @@ p {
 
 .error-visible {
 	color: #d8948d;
+}
+
+.help-backdrop {
+	position: fixed;
+	z-index: 10;
+	inset: 0;
+	background: rgb(4 7 5 / 62%);
+}
+
+.word-help {
+	position: fixed;
+	z-index: 11;
+	top: 0;
+	right: 0;
+	display: flex;
+	width: min(520px, 42vw);
+	height: 100vh;
+	flex-direction: column;
+	gap: 36px;
+	padding: 48px;
+	border-left: 1px solid #3b443d;
+	outline: none;
+	background: #171b18;
+	box-shadow: -24px 0 80px rgb(0 0 0 / 24%);
+}
+
+.word-help-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 24px;
+}
+
+.word-help-header h2 {
+	margin: 0;
+	font-family: 'SFMono-Regular', Consolas, monospace;
+	font-size: 1.75rem;
+	font-weight: 500;
+}
+
+.close-help {
+	padding: 7px 10px;
+	border: 1px solid #465048;
+	border-radius: 3px;
+	color: #929e95;
+	background: transparent;
+	font: inherit;
+	font-size: 0.6875rem;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	cursor: pointer;
+}
+
+.help-explanation {
+	margin: 0;
+	color: #e2e8e3;
+	font-size: 1.125rem;
+	line-height: 1.8;
+}
+
+.help-section {
+	padding-top: 24px;
+	border-top: 1px solid #303732;
+}
+
+.help-section h3 {
+	margin-bottom: 12px;
+	color: #849087;
+	font-size: 0.6875rem;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+.help-section p,
+.help-section blockquote {
+	margin: 0;
+	color: #cbd3cd;
+	font-family: Georgia, serif;
+	font-size: 1.0625rem;
+	line-height: 1.7;
+}
+
+.help-section mark {
+	padding: 2px 1px;
+	color: #f3f5f3;
+	background: #49604e;
 }
 
 .completion-view,

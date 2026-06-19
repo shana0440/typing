@@ -74,3 +74,35 @@ test('corrupt Reading Progress does not break the reader', async ({ page }) => {
 	await page.getByRole('link', { name: 'Begin reading' }).click();
 	await expect(page.getByLabel('0% complete')).toBeVisible();
 });
+
+test('Word Help supports words, phrases, missing help, and paused typing', async ({ page }) => {
+	await page.goto('/session');
+	const session = page.getByRole('region', { name: 'Typing Session' });
+	await expect(session).toBeFocused();
+
+	await page.keyboard.press('Alt+h');
+	await expect(page.getByRole('status')).toContainText('No Word Help was prepared');
+	await page.keyboard.type('Mara ');
+	await expect(page.getByLabel('3% complete')).toBeVisible();
+
+	await page.keyboard.press('Alt+h');
+	let help = page.getByRole('dialog', { name: 'opened' });
+	await expect(help).toBeVisible();
+	await expect(help.getByText('在此表示把原本關著的窗戶打開，讓空氣進入。')).toBeVisible();
+	await expect(help.getByRole('heading', { name: 'Generated example' })).toBeVisible();
+	await expect(help.locator('mark')).toHaveText('opened');
+
+	await page.keyboard.type('opened ');
+	await expect(page.getByLabel('3% complete')).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(help).toBeHidden();
+	await expect(session).toBeFocused();
+
+	await page.keyboard.type('opened the window ');
+	await page.keyboard.press('Alt+h');
+	help = page.getByRole('dialog', { name: 'before sunrise' });
+	await expect(help.locator('mark')).toHaveText('before sunrise');
+	await expect(help.getByText('Mara opened the window before sunrise.')).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(session).toBeFocused();
+});
