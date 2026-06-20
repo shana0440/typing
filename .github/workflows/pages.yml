@@ -1,0 +1,54 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.0.33
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run lint
+      - run: bun run check
+      - run: bun run test:unit -- --run
+      - name: Build and test the Pages artifact
+        env:
+          BASE_PATH: /typing
+        run: bunx playwright test
+      - name: Verify the static artifact contains no credentials or runtime OpenAI calls
+        run: |
+          if grep -RIE 'OPENAI_API_KEY|CODEX_API_KEY|auth\.json|api\.openai\.com' build; then
+            echo 'Forbidden credential or runtime OpenAI reference found in build.' >&2
+            exit 1
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: build
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

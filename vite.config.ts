@@ -4,6 +4,15 @@ import { playwright } from '@vitest/browser-playwright';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 
+const configuredBasePath = process.env.BASE_PATH ?? '';
+if (
+	configuredBasePath &&
+	(!configuredBasePath.startsWith('/') || configuredBasePath.endsWith('/'))
+) {
+	throw new Error('BASE_PATH must start with "/" and must not end with "/".');
+}
+const basePath = configuredBasePath as '' | `/${string}`;
+
 export default defineConfig({
 	plugins: [
 		tailwindcss(),
@@ -13,7 +22,8 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter()
+			adapter: adapter(),
+			paths: { base: basePath }
 		})
 	],
 	test: {

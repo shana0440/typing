@@ -2,9 +2,14 @@ import { expect, test } from '@playwright/test';
 
 const source =
 	'Mara opened the window before sunrise. The street below was quiet, and the cool air smelled of rain.\n\nShe set a small lamp beside her book. Soon, a warm square of light rested on every page.';
+const basePath = process.env.BASE_PATH ?? '';
+
+function appPath(path: string): string {
+	return `${basePath}${path}`;
+}
 
 test('reader types a bundled source through completion', async ({ page }) => {
-	await page.goto('/');
+	await page.goto(appPath('/'));
 	await expect(page.getByRole('heading', { name: 'Catalog' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'The Window Light' })).toBeVisible();
 
@@ -37,7 +42,7 @@ test('reader types a bundled source through completion', async ({ page }) => {
 });
 
 test('Reading Progress resumes at a word boundary and can be restarted', async ({ page }) => {
-	await page.goto('/session?source=the-window-light');
+	await page.goto(appPath('/session/?source=the-window-light'));
 	await expect(page.getByLabel('0% complete')).toBeVisible();
 
 	await page.keyboard.type('Mara ');
@@ -73,7 +78,7 @@ test('Reading Progress resumes at a word boundary and can be restarted', async (
 });
 
 test('corrupt Reading Progress does not break the reader', async ({ page }) => {
-	await page.goto('/');
+	await page.goto(appPath('/'));
 	await page.evaluate(() => localStorage.setItem('typing-practice:reading-progress', '{broken'));
 	await page.reload();
 
@@ -87,7 +92,7 @@ test('corrupt Reading Progress does not break the reader', async ({ page }) => {
 });
 
 test('Word Help supports words, phrases, missing help, and paused typing', async ({ page }) => {
-	await page.goto('/session?source=the-window-light');
+	await page.goto(appPath('/session/?source=the-window-light'));
 	const session = page.getByRole('region', { name: 'Typing Session' });
 	await expect(session).toBeFocused();
 
