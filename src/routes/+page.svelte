@@ -29,6 +29,16 @@
 		return saved ? Math.round((saved.position / sourceText(source).length) * 100) : 0;
 	}
 
+	function wordCount(source: ReadingSource): string {
+		return new Intl.NumberFormat('en', { notation: 'compact' }).format(
+			sourceText(source).trim().split(/\s+/).length
+		);
+	}
+
+	function sourceKind(source: ReadingSource): string {
+		return source.originalUrl ? 'Article' : 'Short story';
+	}
+
 	function restart(sourceId: string) {
 		clearSourceProgress(localStorage, sourceId);
 	}
@@ -43,22 +53,38 @@
 </svelte:head>
 
 <main class="catalog-page">
+	<nav class="site-nav" aria-label="Main navigation">
+		<a class="wordmark" href={resolve('/')} aria-label="Typing Practice home">
+			<span class="wordmark-mark" aria-hidden="true">T</span>
+			<span>Typing Practice</span>
+		</a>
+		<span class="local-note">Progress stays on this device</span>
+	</nav>
+
 	<header class="catalog-header">
-		<p class="eyebrow">Typing Practice</p>
-		<h1>Catalog</h1>
-		<p class="lede">Read at your own pace. Type each source from beginning to end.</p>
+		<div>
+			<p class="eyebrow">A reading practice, not a speed test</p>
+			<h1>Read with<br /><em>your hands.</em></h1>
+		</div>
+		<p class="lede">
+			Move through complete essays and stories one character at a time. No timers, scores, or
+			streaks. Just the text and your attention.
+		</p>
 	</header>
 
 	{#if mostRecent}
 		<section class="continue-card" aria-labelledby="continue-heading">
-			<div>
+			<div class="continue-copy">
 				<p class="eyebrow">Most recent</p>
 				<h2 id="continue-heading">{mostRecent.source.title}</h2>
-				<p>
+				<p class="continue-meta">
 					{mostRecent.saved?.completedAt
 						? 'Completed'
 						: `${percentage(mostRecent.source)}% complete`}
 				</p>
+				<div class="card-progress" aria-hidden="true">
+					<span style:width={`${percentage(mostRecent.source)}%`}></span>
+				</div>
 			</div>
 			<form action={resolve('/session')} method="get">
 				<button class="primary-action" name="source" value={mostRecent.source.id} type="submit"
@@ -70,24 +96,39 @@
 
 	<section aria-labelledby="reading-sources">
 		<div class="section-heading">
-			<h2 id="reading-sources">Reading Sources</h2>
-			<span>{catalog.length} source</span>
+			<div>
+				<p class="eyebrow">The library</p>
+				<h2 id="reading-sources">Catalog</h2>
+			</div>
+			<span>{catalog.length} {catalog.length === 1 ? 'source' : 'sources'}</span>
 		</div>
 
 		<div class="source-grid">
 			{#each catalog as source (source.id)}
 				{@const saved = progressForSource(progress, source)}
 				<article class="source-card">
-					<div>
-						<p class="source-kind">Short story</p>
+					<div class="source-card-main">
+						<div class="source-card-index" aria-hidden="true">
+							{String(catalog.indexOf(source) + 1).padStart(2, '0')}
+						</div>
+						<p class="source-kind">{sourceKind(source)}</p>
 						<h3>{source.title}</h3>
 						<p class="source-author">by {source.author}</p>
-						<p class="source-progress">
-							{saved?.completedAt ? 'Completed' : `${percentage(source)}% complete`}
-						</p>
+					</div>
+					<div class="card-progress" aria-hidden="true">
+						<span style:width={`${percentage(source)}%`}></span>
 					</div>
 					<div class="source-footer">
-						<span>{source.sections.length} chapter</span>
+						<div class="source-details">
+							<span>{wordCount(source)} words</span>
+							<span
+								>{source.sections.length}
+								{source.sections.length === 1 ? 'section' : 'sections'}</span
+							>
+							<span class="source-progress">
+								{saved?.completedAt ? 'Completed' : `${percentage(source)}% complete`}
+							</span>
+						</div>
 						<form action={resolve('/session')} method="get">
 							<button
 								class="primary-action"

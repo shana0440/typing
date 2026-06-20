@@ -180,7 +180,9 @@
 {:else}
 	<main class="session-page">
 		<header class="session-header">
-			<a class="catalog-link" href={resolve('/')} aria-label="Return to Catalog">Catalog</a>
+			<a class="catalog-link" href={resolve('/')} aria-label="Return to Catalog">
+				<span aria-hidden="true">←</span> Catalog
+			</a>
 			<div class="source-context">
 				<strong>{source.title}</strong>
 				<span>{sectionTitle}</span>
@@ -194,8 +196,16 @@
 		</header>
 
 		<section class="typing-stage" aria-label="Typing Session" tabindex="-1" bind:this={typingStage}>
-			<p class="keyboard-hint">Type to continue</p>
+			<div class="session-instructions">
+				<p class="keyboard-hint">
+					<span class="status-dot" aria-hidden="true"></span>Ready to type
+				</p>
+				<p class="shortcut-hint"><kbd>Alt</kbd><span>+</span><kbd>H</kbd> for word help</p>
+			</div>
 			<div class="text-viewport">
+				<div class="reading-rail" aria-hidden="true">
+					<span style:height={`${progress}%`}></span>
+				</div>
 				<div class="source-text" aria-label="Reading Source text">
 					{#each Array.from(text) as character, index (index)}
 						{#if character === '\n'}

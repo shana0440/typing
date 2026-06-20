@@ -7,7 +7,7 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
-	<meta name="theme-color" content="#101311" />
+	<meta name="theme-color" content="#0b1020" />
 </svelte:head>
 
 <div class="desktop-app">{@render children()}</div>
