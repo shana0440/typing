@@ -2,6 +2,7 @@
 	import { catalog, findSource, sourceText, type WordHelpAnnotation } from '$lib/catalog';
 	import {
 		clearSourceProgress,
+		isWordBoundary,
 		progressForSource,
 		readProgress,
 		saveSourceProgress
@@ -10,6 +11,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { onMount, tick } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 
 	const sourceId = $derived(
 		browser ? (page.url.searchParams.get('source') ?? catalog[0].id) : catalog[0].id
@@ -17,7 +19,8 @@
 	const source = $derived(findSource(sourceId));
 	const text = $derived(source ? sourceText(source) : '');
 	let position = $state(0);
-	let error = $state<string | null>(null);
+	let error = $state<{ expected: string; actual: string } | null>(null);
+	let incorrectPositions = new SvelteSet<number>();
 	let completed = $state(false);
 	let completedAt = $state<string | null>(null);
 	let hydrated = $state(false);
@@ -92,6 +95,31 @@
 		focusTypingStage();
 	}
 
+	function handleBackspace(event: KeyboardEvent) {
+		event.preventDefault();
+		if (!source || position === 0) return;
+
+		position -= 1;
+		while (position > 0 && text[position] === '\n') position -= 1;
+		incorrectPositions.delete(position);
+		error = null;
+		helpMessage = null;
+
+		const saved = progressForSource(readProgress(localStorage), source);
+		let resumablePosition = position;
+		while (resumablePosition > 0 && !isWordBoundary(text, resumablePosition)) {
+			resumablePosition -= 1;
+		}
+		if (saved && saved.position > resumablePosition) {
+			if (resumablePosition === 0) {
+				clearSourceProgress(localStorage, source.id);
+			} else {
+				saveSourceProgress(localStorage, source, resumablePosition, new Date().toISOString());
+			}
+		}
+		keepCurrentPositionVisible();
+	}
+
 	function handleKeydown(event: KeyboardEvent) {
 		if (!source || !hydrated || completed) return;
 		if (event.ctrlKey || event.metaKey) return;
@@ -100,7 +128,7 @@
 			if (event.key === 'Escape') {
 				event.preventDefault();
 				closeHelp();
-			} else if (event.key.length === 1) {
+			} else if (event.key === 'Backspace' || event.key.length === 1) {
 				event.preventDefault();
 			}
 			return;
@@ -113,26 +141,33 @@
 		}
 
 		if (event.altKey) return;
+		if (event.key === 'Backspace') {
+			handleBackspace(event);
+			return;
+		}
 		if (event.key.length !== 1) return;
 
 		event.preventDefault();
-		if (event.key !== text[position]) {
-			error = event.key;
-			helpMessage = null;
-			return;
+		const inputPosition = position;
+		const expectedCharacter = text[inputPosition];
+		if (event.key !== expectedCharacter) {
+			incorrectPositions.add(inputPosition);
+			error = { expected: expectedCharacter, actual: event.key };
+		} else {
+			error = null;
 		}
-
-		error = null;
 		helpMessage = null;
 		const positionAfterInput = position + 1;
 		position += 1;
 		skipParagraphBoundaries();
 		if (position >= text.length) {
-			completedAt = new Date().toISOString();
-			completed = true;
-			saveSourceProgress(localStorage, source, position, completedAt, completedAt);
+			if (error === null) {
+				completedAt = new Date().toISOString();
+				completed = true;
+				saveSourceProgress(localStorage, source, position, completedAt, completedAt);
+			}
 		} else {
-			if (event.key === ' ' || position > positionAfterInput) {
+			if (expectedCharacter === ' ' || position > positionAfterInput) {
 				saveSourceProgress(localStorage, source, position, new Date().toISOString());
 			}
 			keepCurrentPositionVisible();
@@ -143,6 +178,7 @@
 		if (source) clearSourceProgress(localStorage, source.id);
 		position = 0;
 		error = null;
+		incorrectPositions.clear();
 		completed = false;
 		completedAt = null;
 		activeHelp = null;
@@ -213,8 +249,8 @@
 						{:else}
 							<span
 								class:completed-character={index < position}
-								class:current-character={index === position}
-								class:typing-error={index === position && error !== null}>{character}</span
+								class:incorrect-character={incorrectPositions.has(index)}
+								class:current-character={index === position}>{character}</span
 							>
 						{/if}
 					{/each}
@@ -226,7 +262,7 @@
 				role="status"
 			>
 				{error !== null
-					? `Expected ${JSON.stringify(text[position])}. Try again.`
+					? `Expected ${JSON.stringify(error.expected)}, received ${JSON.stringify(error.actual)}.`
 					: (helpMessage ?? ' ')}
 			</p>
 		</section>

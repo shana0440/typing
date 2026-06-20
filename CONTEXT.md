@@ -33,5 +33,5 @@ An on-demand Traditional Chinese explanation and English usage example for a CEF
 _Avoid_: Dictionary popup, definition panel
 
 **Typing Error**:
-An incorrect character that must be corrected before Reading Progress advances. It provides immediate feedback but is not scored.
+An incorrect character that remains highlighted after Reading Progress advances. It provides immediate feedback but is not scored; the reader can use Backspace to return and correct it.
 _Avoid_: Failure, penalty, accuracy result

@@ -29,31 +29,32 @@ Provide a URL importer that extracts one complete HTML source without altering i
 13. As the reader, I want subtle chapter context and source completion percentage, so that I retain orientation without performance pressure.
 14. As the reader, I want to type letters, capitalization, punctuation, and spaces exactly, so that I engage with the author's prose.
 15. As the reader, I want paragraph boundaries to advance automatically, so that `Enter` is not part of typing the source.
-16. As the reader, I want a Typing Error highlighted and advancement blocked until corrected, so that Reading Progress stays aligned.
+16. As the reader, I want a Typing Error highlighted without blocking advancement, so that mistakes do not interrupt my reading flow.
 17. As the reader, I want Typing Errors excluded from scores and summaries, so that mistakes remain feedback rather than penalties.
-18. As the reader, I want `Alt+H` to request Word Help for the word containing the next character, so that I never need the mouse.
-19. As the reader, I want `Escape` to close Word Help and restore typing focus, so that lookup does not break keyboard flow.
-20. As the reader, I want typing paused while Word Help is open, so that panel interaction cannot alter Reading Progress.
-21. As the reader, I want Traditional Chinese Word Help with the highlighted source sentence and a labeled generated English example, so that I understand the term in context.
-22. As the reader, I want help to cover an entire idiom or phrasal verb and highlight its span, so that I learn the contextual meaning.
-23. As the reader, I want no vocabulary markers in the typing surface, so that annotations do not distract me.
-24. As the reader, I want a brief message when no help was prepared, so that the absence is understandable.
-25. As the reader, I want a quiet completion view with title, completion date, Catalog action, and restart action, so that completion is useful without becoming a score screen.
-26. As the operator, I want to import one complete publicly reachable HTML page through one command, so that Catalog maintenance fits my terminal workflow.
-27. As the operator, I want unsupported crawling, PDFs, paywall bypass, and incomplete sources rejected, so that import behavior remains predictable.
-28. As the operator, I want extraction to preserve source prose exactly, so that AI cannot rewrite, correct, simplify, summarize, or paraphrase it.
-29. As the operator, I want page chrome excluded while title, author, language, structure, URL, exact text, and annotations remain reviewable, so that I can verify the complete Import Draft.
-30. As the operator, I want AI to identify CEFR B2+ terms, idioms, and contextual meanings, so that Word Help is useful without annotating basic vocabulary.
-31. As the operator, I want AI annotations structurally separate from immutable source content, so that supplemental output cannot be mistaken for the work.
-32. As the operator, I want analysis delegated to my OAuth-authenticated Codex CLI, so that I do not manage a separate API key.
-33. As the operator, I want a local browser preview and explicit terminal approval, so that AI output is never Published automatically.
-34. As the operator, I want rejected drafts retained for inspection, so that extraction and annotation failures can be diagnosed.
-35. As the operator, I want approved Catalog output to be deterministic static data, so that deployment needs no database or AI runtime.
-36. As the operator, I want to confirm that a source is authorized for redistribution, so that the Catalog invariant is explicit.
-37. As the operator, I want the importer to stop after writing files, so that it never commits, pushes, or deploys for me.
-38. As the operator, I want Git diffs to expose every Catalog change, so that I can review publication before committing.
-39. As the operator, I want GitHub Actions to build and deploy approved commits, so that publication is reproducible.
-40. As the operator, I want no OpenAI credentials or calls in the deployed site, so that it remains safe to host as static files.
+18. As the reader, I want Backspace to return to the previous visible character and clear its Typing Error, so that I can correct mistakes without restarting.
+19. As the reader, I want `Alt+H` to request Word Help for the word containing the next character, so that I never need the mouse.
+20. As the reader, I want `Escape` to close Word Help and restore typing focus, so that lookup does not break keyboard flow.
+21. As the reader, I want typing paused while Word Help is open, so that panel interaction cannot alter Reading Progress.
+22. As the reader, I want Traditional Chinese Word Help with the highlighted source sentence and a labeled generated English example, so that I understand the term in context.
+23. As the reader, I want help to cover an entire idiom or phrasal verb and highlight its span, so that I learn the contextual meaning.
+24. As the reader, I want no vocabulary markers in the typing surface, so that annotations do not distract me.
+25. As the reader, I want a brief message when no help was prepared, so that the absence is understandable.
+26. As the reader, I want a quiet completion view with title, completion date, Catalog action, and restart action, so that completion is useful without becoming a score screen.
+27. As the operator, I want to import one complete publicly reachable HTML page through one command, so that Catalog maintenance fits my terminal workflow.
+28. As the operator, I want unsupported crawling, PDFs, paywall bypass, and incomplete sources rejected, so that import behavior remains predictable.
+29. As the operator, I want extraction to preserve source prose exactly, so that AI cannot rewrite, correct, simplify, summarize, or paraphrase it.
+30. As the operator, I want page chrome excluded while title, author, language, structure, URL, exact text, and annotations remain reviewable, so that I can verify the complete Import Draft.
+31. As the operator, I want AI to identify CEFR B2+ terms, idioms, and contextual meanings, so that Word Help is useful without annotating basic vocabulary.
+32. As the operator, I want AI annotations structurally separate from immutable source content, so that supplemental output cannot be mistaken for the work.
+33. As the operator, I want analysis delegated to my OAuth-authenticated Codex CLI, so that I do not manage a separate API key.
+34. As the operator, I want a local browser preview and explicit terminal approval, so that AI output is never Published automatically.
+35. As the operator, I want rejected drafts retained for inspection, so that extraction and annotation failures can be diagnosed.
+36. As the operator, I want approved Catalog output to be deterministic static data, so that deployment needs no database or AI runtime.
+37. As the operator, I want to confirm that a source is authorized for redistribution, so that the Catalog invariant is explicit.
+38. As the operator, I want the importer to stop after writing files, so that it never commits, pushes, or deploys for me.
+39. As the operator, I want Git diffs to expose every Catalog change, so that I can review publication before committing.
+40. As the operator, I want GitHub Actions to build and deploy approved commits, so that publication is reproducible.
+41. As the operator, I want no OpenAI credentials or calls in the deployed site, so that it remains safe to host as static files.
 
 ## Implementation Decisions
 
@@ -69,7 +70,7 @@ Provide a URL importer that extracts one complete HTML source without altering i
 - Generate Catalog files only after approval. Do not commit, push, or deploy from the importer.
 - Represent Reading Progress as the last completed word boundary per stable source identifier and store it locally in the browser.
 - Handle Catalog schema changes and corrupted local data without breaking the reader.
-- Implement deterministic character progression over immutable source text. A Typing Error changes feedback but not position.
+- Implement deterministic character progression over immutable source text. Every printable input advances the position, while a Typing Error remains highlighted for feedback. Backspace returns to the previous visible character, clears its error, and rolls Reading Progress back to a valid word boundary when necessary.
 - Advance paragraph boundaries automatically; require exact input for all other visible letters, case, punctuation, and spaces.
 - Suspend source input while Word Help is open. `Alt+H` targets the annotation containing the next character; `Escape` closes the panel and restores focus.
 - Do not intercept `Ctrl+H`, which browsers reserve for History.
@@ -83,7 +84,7 @@ Provide a URL importer that extracts one complete HTML source without altering i
 - Test external behavior and persisted artifacts, not component internals, private functions, CSS classes, or exact AI wording.
 - Use an importer workflow test as the highest CLI boundary. Serve fixture HTML locally, place a fake Codex executable on the process path, run the real command, and assert exact source preservation, validated annotations, approval/rejection, and Catalog artifacts.
 - Cover unreachable URLs, unsupported pages, extraction failure, Codex failure, malformed output, invalid annotation spans, and attempted source mutation.
-- Use Playwright as the highest browser boundary, building on the existing setup. Cover Catalog selection, continuation, exact typing, Typing Error correction, paragraph advancement, `Alt+H`/`Escape`, phrase help, unavailable help, per-word persistence, refresh recovery, completion, and restart.
+- Use Playwright as the highest browser boundary, building on the existing setup. Cover Catalog selection, continuation, exact typing, Typing Error advancement and correction with Backspace, paragraph advancement, `Alt+H`/`Escape`, phrase help, unavailable help, per-word persistence, refresh recovery, completion, and restart.
 - Verify the GitHub Pages production build and repository base path in automated checks.
 - Add focused unit tests only where lower-level deterministic edge cases are clearer, including Unicode indexing, annotation spans, Catalog parsing, and corrupted progress recovery.
 - Keep tests credential-free and deterministic with fixture servers and fake Codex output.

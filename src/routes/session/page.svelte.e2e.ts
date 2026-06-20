@@ -23,6 +23,10 @@ test('reader types a bundled source through completion', async ({ page }) => {
 
 	await page.keyboard.type('X');
 	await expect(page.getByRole('status')).toContainText('Expected "M"');
+	await expect(page.getByLabel('1% complete')).toBeVisible();
+
+	await page.keyboard.press('Backspace');
+	await expect(page.getByRole('status')).toHaveText('');
 	await expect(page.getByLabel('0% complete')).toBeVisible();
 
 	await page.keyboard.type('M');
@@ -30,7 +34,14 @@ test('reader types a bundled source through completion', async ({ page }) => {
 	await expect(page.getByLabel('1% complete')).toBeVisible();
 
 	await page.keyboard.type(source.slice(1, source.indexOf('\n')));
-	await page.keyboard.type(source.slice(source.indexOf('\n') + 2));
+	const finalParagraphs = source.slice(source.indexOf('\n') + 2);
+	await page.keyboard.type(finalParagraphs.slice(0, -1));
+	await page.keyboard.type('X');
+	await expect(page.getByRole('region', { name: 'Typing Session' })).toBeVisible();
+	await expect(page.getByRole('status')).toContainText('Expected "."');
+
+	await page.keyboard.press('Backspace');
+	await page.keyboard.type('.');
 
 	await expect(page.getByText('Reading complete')).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'The Window Light' })).toBeVisible();

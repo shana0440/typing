@@ -503,11 +503,13 @@ kbd {
 	color: #fff8e8;
 	background: rgb(242 198 109 / 10%);
 }
-.typing-error {
-	border-radius: 2px;
-	border-bottom-color: var(--danger);
-	color: #ffe7e7;
-	background: #5a2730;
+.incorrect-character {
+	color: #ff9a9a;
+	background: rgb(143 45 57 / 32%);
+	text-decoration: underline;
+	text-decoration-color: var(--danger);
+	text-decoration-thickness: 2px;
+	text-underline-offset: 4px;
 }
 .error-message {
 	min-height: 20px;
