@@ -28,6 +28,21 @@ const articleHtml = `<!doctype html>
 		<footer>Ignore this footer.</footer>
 	</body>
 </html>`;
+const legacyBookHtml = `<!doctype html>
+<html>
+	<head><title>A Legacy Book</title></head>
+	<body>
+		<article>
+			<p>Title: A Legacy Book<br>Author: Ada Example<br>Language: English</p>
+			<h1>PART ONE</h1>
+			<h2><a name="ch1"></a>Chapter 1</h2>
+			<p>The first chapter opens with enough complete English prose to become a useful Reading Source for deliberate typing practice.</p>
+			<p>Its second paragraph makes the chapter boundary meaningful rather than leaving a single undifferentiated article.</p>
+			<h2><a name="ch2"></a>Chapter 2</h2>
+			<p>The second chapter remains independent and contains enough additional English prose for deterministic extraction.</p>
+		</article>
+	</body>
+</html>`;
 
 describe('Import Draft workflow', () => {
 	let server: Server;
@@ -47,6 +62,10 @@ describe('Import Draft workflow', () => {
 					pageTwoRequests += 1;
 					response.setHeader('Content-Type', 'text/html');
 					response.end('<html lang="en"><article><p>Must not be fetched.</p></article></html>');
+					break;
+				case '/legacy-book':
+					response.setHeader('Content-Type', 'text/html; charset=utf-8');
+					response.end(legacyBookHtml);
 					break;
 				case '/pdf':
 					response.setHeader('Content-Type', 'application/pdf');
@@ -133,6 +152,22 @@ describe('Import Draft workflow', () => {
 		await runImport('/article');
 		expect(await readFile(join(draftDirectory, files[0]), 'utf8')).toBe(firstArtifact);
 		expect(await readFile(join(projectRoot, 'src/lib/catalog.ts'), 'utf8')).toBe(catalogBefore);
+	});
+
+	it('accepts an explicitly English legacy ebook and preserves chapter sections', async () => {
+		await runImport('/legacy-book');
+		const file = (await readdir(draftDirectory)).find((name) => name.startsWith('a-legacy-book-'));
+		expect(file).toBeDefined();
+		const draft = JSON.parse(await readFile(join(draftDirectory, file!), 'utf8')) as ImportDraft;
+
+		expect(draft.metadata.language).toBe('en');
+		expect(draft.source.sections.map((section) => section.heading)).toEqual([
+			null,
+			'Chapter 1',
+			'Chapter 2'
+		]);
+		expect(draft.source.sections[1].blocks).toHaveLength(2);
+		expect(draft.source.sections[2].blocks).toHaveLength(1);
 	});
 
 	it.each([

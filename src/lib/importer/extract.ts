@@ -79,6 +79,20 @@ function slug(value: string): string {
 	);
 }
 
+function declaredLanguage(document: Document): string | null {
+	const htmlLanguage = document.documentElement.lang.trim();
+	if (htmlLanguage) return htmlLanguage;
+
+	const metadataLanguage = document
+		.querySelector('meta[name="language" i], meta[http-equiv="content-language" i]')
+		?.getAttribute('content')
+		?.trim();
+	if (metadataLanguage) return metadataLanguage;
+
+	const legacyHeader = (document.body.textContent ?? '').slice(0, 4_000);
+	return legacyHeader.match(/Language:\s*([a-z]+(?:-[a-z]+)?)/i)?.[1] ?? null;
+}
+
 function extractSections(content: string): ImportSection[] {
 	const document = new JSDOM(`<main>${content}</main>`).window.document;
 	const sections: ImportSection[] = [];
@@ -151,8 +165,8 @@ export async function createImportDraft(
 		throw new ImportError('Authenticated, restricted, or paywalled pages are not supported.');
 	}
 
-	const language = document.documentElement.lang.trim().toLowerCase();
-	if (!language.startsWith('en')) {
+	const language = declaredLanguage(document);
+	if (!language?.toLowerCase().startsWith('en')) {
 		throw new ImportError(
 			language
 				? `Only English Reading Sources are supported; the page declares "${language}".`
