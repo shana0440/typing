@@ -22,7 +22,7 @@ const articleHtml = `<!doctype html>
 			<p>The first bell rang softly, and everyone in the old house paused to listen.</p>
 			<h2>At the window</h2>
 			<p>Mina opened the blue curtain. A <em>patient</em> light moved across the wooden floor.</p>
-			<p>Nothing hurried her; even the rain seemed willing to wait.</p>
+			<p>“Wait—don’t…” Mina’s ﬁrst ﬂame ‛flickered‟ across a non‑breaking path–then„settled. ‘Plain’ word‐word. A&nbsp;wide and narrow&#8239;space, plus soft&shy;hyphen. Keep café, ‚low quotes‚, and € unchanged.</p>
 			<a href="/page-two">Next page</a>
 		</article>
 		<footer>Ignore this footer.</footer>
@@ -98,7 +98,7 @@ describe('Import Draft workflow', () => {
 		);
 	}
 
-	it('writes a deterministic, review-only draft with exact source prose', async () => {
+	it('writes a deterministic, review-only draft with typing-friendly source prose', async () => {
 		const catalogBefore = await readFile(join(projectRoot, 'src/lib/catalog.ts'), 'utf8');
 		const firstRun = await runImport('/article');
 		expect(firstRun.stdout).toContain('has not been Published to the Catalog');
@@ -125,7 +125,7 @@ describe('Import Draft workflow', () => {
 		).toEqual([
 			'The first bell rang softly, and everyone in the old house paused to listen.',
 			'Mina opened the blue curtain. A patient light moved across the wooden floor.',
-			'Nothing hurried her; even the rain seemed willing to wait.'
+			"\"Wait-don't...\" Mina's first flame 'flickered\" across a non-breaking path-then\"settled. 'Plain' word-word. A wide and narrow space, plus softhyphen. Keep café, ‚low quotes‚, and € unchanged."
 		]);
 		expect(firstArtifact).not.toContain('Ignore this');
 		expect(pageTwoRequests).toBe(0);

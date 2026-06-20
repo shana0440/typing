@@ -17,7 +17,7 @@ The private, curated collection of Reading Sources published for the sole reader
 _Avoid_: User library, uploads
 
 **Import Draft**:
-A proposed Reading Source extracted from a URL without changing its content and awaiting operator review. AI annotations may accompany it, but it is not part of the Catalog until explicitly approved.
+A proposed Reading Source extracted from a URL, normalized only with the approved typing-friendly character replacements, and awaiting operator review. AI annotations may accompany it, but it is not part of the Catalog until explicitly approved.
 _Avoid_: Upload, published source
 
 **Publish**:

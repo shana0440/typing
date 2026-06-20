@@ -4,6 +4,27 @@ import { JSDOM } from 'jsdom';
 import type { ImportBlock, ImportDraft, ImportSection } from './types.ts';
 
 const MINIMUM_SOURCE_LENGTH = 80;
+const TYPING_FRIENDLY_REPLACEMENTS: Readonly<Record<string, string>> = {
+	'\u2018': "'",
+	'\u2019': "'",
+	'\u201b': "'",
+	'\u201c': '"',
+	'\u201d': '"',
+	'\u201e': '"',
+	'\u201f': '"',
+	'\u2010': '-',
+	'\u2011': '-',
+	'\u2013': '-',
+	'\u2014': '-',
+	'\u2026': '...',
+	'\u00a0': ' ',
+	'\u202f': ' ',
+	'\ufb01': 'fi',
+	'\ufb02': 'fl',
+	'\u00ad': ''
+};
+const TYPING_FRIENDLY_CHARACTER =
+	/[\u00a0\u00ad\u2010\u2011\u2013\u2014\u2018\u2019\u201b\u201c\u201d\u201e\u201f\u2026\u202f\ufb01\ufb02]/gu;
 
 export class ImportError extends Error {
 	constructor(message: string) {
@@ -29,7 +50,10 @@ function requireImportUrl(input: string): URL {
 }
 
 function normalizedText(element: Element): string {
-	return (element.textContent ?? '').replaceAll('\r\n', '\n').trim();
+	return (element.textContent ?? '')
+		.replaceAll('\r\n', '\n')
+		.replace(TYPING_FRIENDLY_CHARACTER, (character) => TYPING_FRIENDLY_REPLACEMENTS[character])
+		.trim();
 }
 
 function blockType(element: Element): ImportBlock['type'] {
