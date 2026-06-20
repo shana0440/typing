@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { validateBlockAnalysis } from './analyze.ts';
+import {
+	partitionAnalysisBatches,
+	validateBatchAnalysis,
+	validateBlockAnalysis
+} from './analyze.ts';
 import { draftSourceBlocks, draftSourceText } from './draft.ts';
 import type { ImportDraft } from './types.ts';
 
@@ -30,6 +34,7 @@ describe('Codex annotation validation', () => {
 		};
 		const start = draftSourceText(draft).indexOf('intricate');
 		const annotations = validateBlockAnalysis(draftSourceBlocks(draft)[0], {
+			key: 'section-1:0',
 			sourceText: text,
 			annotations: [
 				{
@@ -48,5 +53,40 @@ describe('Codex annotation validation', () => {
 
 		expect(start).toBe(5);
 		expect(annotations[0]).toMatchObject({ start: 5, end: 14 });
+	});
+
+	it('partitions by block count and source character limit', () => {
+		const blocks = [10_000, 14_000, 1, 25_000, 2].map((length, index) => ({
+			key: `block-${index}`,
+			text: 'x'.repeat(length),
+			globalStart: 0,
+			sectionHeading: null
+		}));
+
+		expect(partitionAnalysisBatches(blocks, 3).map((batch) => batch.map(({ key }) => key))).toEqual(
+			[['block-0', 'block-1'], ['block-2'], ['block-3'], ['block-4']]
+		);
+	});
+
+	it.each([
+		['missing', { results: [] }, 'omitted block result'],
+		[
+			'duplicate',
+			{
+				results: [
+					{ key: 'section-1:0', sourceText: 'text', annotations: [] },
+					{ key: 'section-1:0', sourceText: 'text', annotations: [] }
+				]
+			},
+			'duplicate block result'
+		],
+		[
+			'unexpected',
+			{ results: [{ key: 'other', sourceText: 'text', annotations: [] }] },
+			'unexpected block result'
+		]
+	])('rejects %s keyed results', (_name, output, message) => {
+		const block = { key: 'section-1:0', text: 'text', globalStart: 0, sectionHeading: null };
+		expect(() => validateBatchAnalysis([block], output)).toThrow(message);
 	});
 });

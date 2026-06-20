@@ -42,7 +42,7 @@ function newDraft(): ImportDraft {
 			language: 'en',
 			originalUrl: 'https://example.com/careful-test'
 		},
-		source,
+		source: structuredClone(source),
 		annotations: [],
 		redistributionConfirmed: false
 	};
@@ -89,7 +89,17 @@ if (process.argv[2] === 'app-server') {
     const args = process.argv.slice(2);
     const outputPath = args[args.indexOf('-o') + 1];
     const input = JSON.parse(prompt.trim().split('\\n\\n').at(-1));
-    const response = process.env.FAKE_CODEX_DYNAMIC === '1' ? JSON.stringify({ sourceText: input.sourceText, annotations: [] }) : (process.env.FAKE_CODEX_RESPONSE ?? '');
+    let response;
+    if (process.env.FAKE_CODEX_DYNAMIC === '1') {
+      response = JSON.stringify({ results: input.blocks.map((block) => ({ key: block.key, sourceText: block.sourceText, annotations: [] })) });
+    } else {
+      try {
+        const configured = JSON.parse(process.env.FAKE_CODEX_RESPONSE ?? '{}');
+        response = JSON.stringify(configured.results ? configured : { results: [{ key: input.blocks[0].key, ...configured }] });
+      } catch {
+        response = process.env.FAKE_CODEX_RESPONSE ?? '';
+      }
+    }
     writeFileSync(outputPath, response);
   });
 }
@@ -113,6 +123,8 @@ if (process.argv[2] === 'app-server') {
 		fail?: boolean;
 		failOnText?: string;
 		dynamic?: boolean;
+		concurrency?: number;
+		batchSize?: number;
 		name: string;
 	}) {
 		const testDirectory = join(directory, options.name);
@@ -144,6 +156,8 @@ if (process.argv[2] === 'app-server') {
 			const command = ['run', 'publish:draft', draftPath];
 			if (model) command.push('--model', model);
 			command.push('--catalog-file', catalogPath);
+			if (options.concurrency) command.push('--concurrency', String(options.concurrency));
+			if (options.batchSize) command.push('--batch-size', String(options.batchSize));
 			const child = spawn('bun', command, {
 				cwd: projectRoot,
 				env: {
@@ -184,11 +198,8 @@ if (process.argv[2] === 'app-server') {
 		const result = await runWorkflow({ name: 'approved', input: 'yes\nyes\n', response });
 
 		expect(result.code).toBe(0);
-		expect(result.stdout).toContain('Codex started');
-		expect(result.stdout).toContain('0/1 (0%)');
-		expect(result.stdout).toContain('paragraph 1/1');
-		expect(result.stdout).toContain('1/1 (100%)');
-		expect(result.stdout).toContain('Checkpoint saved');
+		expect(result.stdout).toContain('Batch complete: section-1:0');
+		expect(result.stdout).toContain('Analysis complete');
 		expect(result.stdout).toContain('Review the complete Import Draft at http://127.0.0.1:');
 		expect(result.stdout).toContain('Files were written only');
 		const catalogArtifact = await readFile(result.catalogPath, 'utf8');
@@ -223,8 +234,13 @@ if (process.argv[2] === 'app-server') {
 		expect(codexLog.prompt).toContain(
 			JSON.stringify({
 				title: 'A Careful Test',
-				sectionHeading: 'A careful test',
-				sourceText
+				blocks: [
+					{
+						key: 'section-1:0',
+						sectionHeading: 'A careful test',
+						sourceText
+					}
+				]
 			})
 		);
 
@@ -290,7 +306,7 @@ if (process.argv[2] === 'app-server') {
 		expect(JSON.parse(await readFile(result.draftPath, 'utf8')).status).toBe('draft');
 	});
 
-	it('checkpoints each paragraph and resumes after token or subprocess failure', async () => {
+	it('checkpoints each batch and resumes after a subprocess failure', async () => {
 		const secondText =
 			'A second paragraph should be analyzed only after the saved first checkpoint.';
 		const draft = newDraft();
@@ -299,11 +315,13 @@ if (process.argv[2] === 'app-server') {
 			name: 'resumable',
 			draft,
 			dynamic: true,
-			failOnText: secondText
+			failOnText: secondText,
+			batchSize: 1,
+			concurrency: 1
 		});
 		expect(interrupted.code).toBe(1);
-		expect(interrupted.stdout).toContain('1/2 (50%)');
-		expect(interrupted.stdout).toContain('Paused; checkpoint retained');
+		expect(interrupted.stdout).toContain('Batch complete: section-1:0');
+		expect(interrupted.stdout).toContain('Analysis paused; checkpoints retained');
 		const checkpoint = JSON.parse(await readFile(interrupted.draftPath, 'utf8')) as ImportDraft;
 		expect(checkpoint).toMatchObject({
 			status: 'draft',
@@ -317,11 +335,13 @@ if (process.argv[2] === 'app-server') {
 			name: 'resumable',
 			preserveDraft: true,
 			dynamic: true,
-			input: 'no\n'
+			input: 'no\n',
+			batchSize: 1,
+			concurrency: 1
 		});
 		expect(resumed.code).toBe(0);
-		expect(resumed.stdout).toContain('1/2 (50%)');
-		expect(resumed.stdout).toContain('2/2 (100%)');
+		expect(resumed.stdout).toContain('Batch complete: section-1:1');
+		expect(resumed.stdout).toContain('Analysis complete');
 		const completed = JSON.parse(await readFile(resumed.draftPath, 'utf8')) as ImportDraft;
 		expect(completed.analysisProgress?.completedBlocks).toEqual(['section-1:0', 'section-1:1']);
 
@@ -330,8 +350,58 @@ if (process.argv[2] === 'app-server') {
 			.split('\n')
 			.map((line) => JSON.parse(line) as { prompt: string });
 		expect(logs.filter((entry) => entry.prompt.includes(sourceText))).toHaveLength(1);
-		expect(logs.filter((entry) => entry.prompt.includes(secondText))).toHaveLength(2);
+		expect(logs.filter((entry) => entry.prompt.includes(secondText))).toHaveLength(3);
 	});
+
+	it('batches three source blocks per Codex request by default', async () => {
+		const draft = newDraft();
+		for (let index = 1; index < 7; index += 1) {
+			draft.source.sections[0].blocks.push({
+				type: 'paragraph',
+				text: `Distinct source block ${index} contains enough text for independent analysis.`
+			});
+		}
+		const result = await runWorkflow({
+			name: 'default-batching',
+			draft,
+			dynamic: true,
+			input: 'no\n'
+		});
+
+		expect(result.code).toBe(0);
+		const requests = (await readFile(result.logPath, 'utf8'))
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line) as { prompt: string })
+			.map(
+				(entry) => JSON.parse(entry.prompt.trim().split('\n\n').at(-1)!) as { blocks: unknown[] }
+			);
+		expect(requests.map((request) => request.blocks.length).sort()).toEqual([1, 3, 3]);
+	});
+
+	it.each([
+		['--concurrency', '0', 'Concurrency must be an integer from 1 through 16'],
+		['--concurrency', '17', 'Concurrency must be an integer from 1 through 16'],
+		['--batch-size', '0', 'Batch size must be an integer from 1 through 50'],
+		['--batch-size', '51', 'Batch size must be an integer from 1 through 50']
+	])(
+		'rejects invalid %s values before reading the Import Draft',
+		async (option, value, message) => {
+			const result = await new Promise<{ code: number | null; stderr: string }>((done) => {
+				const child = spawn(
+					'bun',
+					['run', 'publish:draft', join(directory, 'missing-draft.json'), option, value],
+					{ cwd: projectRoot, stdio: ['ignore', 'ignore', 'pipe'] }
+				);
+				let stderr = '';
+				child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
+				child.on('close', (code) => done({ code, stderr }));
+			});
+			expect(result.code).toBe(1);
+			expect(result.stderr).toContain(message);
+			expect(result.stderr).not.toContain('Could not read Import Draft');
+		}
+	);
 
 	it.each([
 		['malformed', '{not json', 'malformed JSON'],

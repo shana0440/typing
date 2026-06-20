@@ -1,6 +1,12 @@
 import { createInterface } from 'node:readline/promises';
 import { resolve } from 'node:path';
-import { analyzeImportDraft, completedBlockCount } from '../src/lib/importer/analyze.ts';
+import {
+	analyzeImportDraft,
+	completedBlockCount,
+	DEFAULT_ANALYSIS_BATCH_SIZE,
+	DEFAULT_ANALYSIS_CONCURRENCY,
+	validateAnalysisSettings
+} from '../src/lib/importer/analyze.ts';
 import { TerminalAnalysisProgress } from '../src/lib/importer/analysis-progress.ts';
 import { draftSourceBlocks, readImportDraft, writeImportDraft } from '../src/lib/importer/draft.ts';
 import { ImportError } from '../src/lib/importer/extract.ts';
@@ -12,31 +18,35 @@ function workflowArguments(args: string[]): {
 	draftPath: string;
 	catalogPath: string;
 	model?: string;
+	concurrency: number;
+	batchSize: number;
 } {
+	const usage =
+		'Usage: bun run publish:draft <draft.json> [--model <model>] [--catalog-file <catalog.json>] [--concurrency <1-16>] [--batch-size <1-50>]';
 	const [draftPath, ...options] = args;
-	if (!draftPath) {
-		throw new ImportError(
-			'Usage: bun run publish:draft <draft.json> [--model <model>] [--catalog-file <catalog.json>]'
-		);
-	}
+	if (!draftPath) throw new ImportError(usage);
 
 	let catalogPath = 'src/lib/catalog-data/catalog.json';
 	let model: string | undefined;
+	let concurrency = DEFAULT_ANALYSIS_CONCURRENCY;
+	let batchSize = DEFAULT_ANALYSIS_BATCH_SIZE;
 	for (let index = 0; index < options.length; index += 1) {
-		if (!options[index + 1]) {
-			throw new ImportError(
-				'Usage: bun run publish:draft <draft.json> [--model <model>] [--catalog-file <catalog.json>]'
-			);
-		}
+		if (!options[index + 1]) throw new ImportError(usage);
 		if (options[index] === '--catalog-file') catalogPath = options[index + 1];
 		else if (options[index] === '--model') model = options[index + 1];
-		else
-			throw new ImportError(
-				'Usage: bun run publish:draft <draft.json> [--model <model>] [--catalog-file <catalog.json>]'
-			);
+		else if (options[index] === '--concurrency') concurrency = Number(options[index + 1]);
+		else if (options[index] === '--batch-size') batchSize = Number(options[index + 1]);
+		else throw new ImportError(usage);
 		index += 1;
 	}
-	return { draftPath: resolve(draftPath), catalogPath: resolve(catalogPath), model };
+	validateAnalysisSettings(concurrency, batchSize);
+	return {
+		draftPath: resolve(draftPath),
+		catalogPath: resolve(catalogPath),
+		model,
+		concurrency,
+		batchSize
+	};
 }
 
 async function confirmed(question: string, terminal: ReturnType<typeof createInterface>) {
@@ -82,7 +92,9 @@ async function main() {
 	const {
 		draftPath,
 		catalogPath,
-		model: requestedModel
+		model: requestedModel,
+		concurrency,
+		batchSize
 	} = workflowArguments(process.argv.slice(2));
 	const draft = await readImportDraft(draftPath);
 	const terminal = createInterface({ input: process.stdin, output: process.stdout });
@@ -96,11 +108,21 @@ async function main() {
 		undefined;
 	console.log(`Using Codex model: ${model ?? 'configured default'}`);
 	const progress = new TerminalAnalysisProgress(blocks.length, savedBlocks);
+	const cancellation = new AbortController();
+	let interrupted = false;
+	const interrupt = () => {
+		if (interrupted) return;
+		interrupted = true;
+		cancellation.abort();
+	};
+	process.once('SIGINT', interrupt);
 	try {
 		const result = await analyzeImportDraft(draft, {
 			model,
-			onEvent: (event) => progress.event(event),
-			onBlockStart: (index) => progress.paragraph(index),
+			concurrency,
+			batchSize,
+			signal: cancellation.signal,
+			onAnalysisEvent: (event) => progress.event(event),
 			onCheckpoint: async (checkpoint) => {
 				draft.annotations = checkpoint.annotations;
 				draft.analysisProgress = {
@@ -111,7 +133,6 @@ async function main() {
 				draft.status = 'draft';
 				draft.redistributionConfirmed = false;
 				await writeImportDraft(draftPath, draft);
-				progress.checkpoint(checkpoint.completedBlocks.length);
 			}
 		});
 		draft.annotations = result.annotations;
@@ -122,9 +143,25 @@ async function main() {
 		};
 		progress.complete();
 	} catch (error) {
-		progress.fail();
+		if (interrupted) {
+			progress.interrupted();
+			const resume = [
+				'bun run publish:draft',
+				JSON.stringify(draftPath),
+				...(model ? ['--model', JSON.stringify(model)] : []),
+				'--catalog-file',
+				JSON.stringify(catalogPath),
+				'--concurrency',
+				String(concurrency),
+				'--batch-size',
+				String(batchSize)
+			].join(' ');
+			console.log(`Resume with: ${resume}`);
+		} else progress.fail();
 		terminal.close();
 		throw error;
+	} finally {
+		process.removeListener('SIGINT', interrupt);
 	}
 	draft.status = 'analyzed';
 	draft.redistributionConfirmed = false;

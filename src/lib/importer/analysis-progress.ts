@@ -1,73 +1,69 @@
-type ProgressStream = Pick<NodeJS.WriteStream, 'write' | 'isTTY'>;
+import type { AnalysisEvent } from './analyze.ts';
 
-const phaseByEvent: Record<string, string> = {
-	'thread.started': 'Codex started',
-	'turn.started': 'Analyzing paragraph',
-	'item.started': 'Preparing Word Help',
-	'item.completed': 'Preparing Word Help',
-	'turn.completed': 'Validating output'
-};
+type ProgressStream = Pick<NodeJS.WriteStream, 'write' | 'isTTY'>;
 
 export class TerminalAnalysisProgress {
 	readonly #stream: ProgressStream;
 	readonly #startedAt = Date.now();
 	readonly #total: number;
 	#completed: number;
-	#paragraph = 0;
-	#phase = 'Ready';
+	#active = 0;
+	#retries = 0;
 	#finished = false;
 
 	constructor(total: number, completed = 0, stream: ProgressStream = process.stdout) {
 		this.#stream = stream;
 		this.#total = total;
 		this.#completed = completed;
-		this.#render();
+		if (this.#stream.isTTY) this.#render();
 	}
 
-	paragraph(index: number): void {
-		this.#paragraph = index + 1;
-		this.#phase = 'Starting Codex';
-		this.#render();
-	}
-
-	event(type: string): void {
-		const phase = phaseByEvent[type];
-		if (!phase || phase === this.#phase || this.#finished) return;
-		this.#phase = phase;
-		this.#render();
-	}
-
-	checkpoint(completed: number): void {
-		this.#completed = completed;
-		this.#phase = 'Checkpoint saved';
+	event(event: AnalysisEvent): void {
+		if (this.#finished) return;
+		this.#active = event.activeBatches;
+		if (event.type === 'batch-start') {
+			this.#render();
+			return;
+		}
+		if (event.type === 'batch-complete') {
+			this.#completed = event.completedBlocks;
+			this.#durable(`Batch complete: ${event.keys.join(', ')}`);
+		} else if (event.type === 'batch-retry') {
+			this.#retries = event.retryCount;
+			this.#durable(`Retrying batch ${event.keys.join(', ')}: ${event.error}`);
+		} else {
+			this.#durable(`Batch failed ${event.keys.join(', ')}: ${event.error}`);
+		}
 		this.#render();
 	}
 
 	complete(): void {
-		this.#completed = this.#total;
-		this.#finish('Complete');
+		this.#finish('Analysis complete');
 	}
-
 	fail(): void {
-		this.#finish('Paused; checkpoint retained');
+		this.#finish('Analysis paused; checkpoints retained');
+	}
+	interrupted(): void {
+		this.#finish('Analysis interrupted; checkpoints retained');
 	}
 
 	#finish(label: string): void {
 		if (this.#finished) return;
 		this.#finished = true;
-		this.#phase = label;
-		this.#render(true);
+		this.#active = 0;
+		this.#durable(label);
 	}
 
-	#render(final = false): void {
+	#durable(message: string): void {
+		if (this.#stream.isTTY) this.#stream.write('\r\u001b[2K');
+		this.#stream.write(`[analysis] ${message}\n`);
+	}
+
+	#render(): void {
+		if (!this.#stream.isTTY || this.#finished) return;
 		const elapsed = Math.max(0, Math.round((Date.now() - this.#startedAt) / 1000));
-		const percentage = this.#total === 0 ? 100 : Math.floor((this.#completed / this.#total) * 100);
-		const width = 20;
-		const filled = Math.floor((percentage / 100) * width);
-		const bar = `${'='.repeat(filled)}${' '.repeat(width - filled)}`;
-		const paragraph = this.#paragraph > 0 ? ` · paragraph ${this.#paragraph}/${this.#total}` : '';
-		const line = `[analysis] [${bar}] ${this.#completed}/${this.#total} (${percentage}%)${paragraph} · ${this.#phase} · ${elapsed}s`;
-		if (this.#stream.isTTY) this.#stream.write(`\r\u001b[2K${line}${final ? '\n' : ''}`);
-		else this.#stream.write(`${line}\n`);
+		this.#stream.write(
+			`\r\u001b[2K[analysis] ${this.#completed}/${this.#total} blocks · ${this.#active} active · ${this.#retries} retries · ${elapsed}s`
+		);
 	}
 }

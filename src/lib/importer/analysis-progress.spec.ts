@@ -1,46 +1,61 @@
 import { describe, expect, it } from 'vitest';
 import { TerminalAnalysisProgress } from './analysis-progress.ts';
 
-describe('analysis progress', () => {
-	it('renders saved paragraph progress for an interactive terminal', () => {
-		let output = '';
-		const progress = new TerminalAnalysisProgress(4, 1, {
-			isTTY: true,
-			write: (chunk) => {
+function stream(isTTY: boolean) {
+	let output = '';
+	return {
+		stream: {
+			isTTY,
+			write: (chunk: string | Uint8Array) => {
 				output += String(chunk);
 				return true;
 			}
+		},
+		output: () => output
+	};
+}
+
+describe('analysis progress', () => {
+	it('renders one aggregate live line for an interactive terminal', () => {
+		const target = stream(true);
+		const progress = new TerminalAnalysisProgress(6, 1, target.stream);
+		progress.event({ type: 'batch-start', activeBatches: 2 });
+		progress.event({
+			type: 'batch-retry',
+			keys: ['section-1:0'],
+			retryCount: 1,
+			activeBatches: 2,
+			error: 'temporary'
 		});
-		progress.paragraph(1);
-		progress.event('thread.started');
-		progress.checkpoint(2);
+		progress.event({
+			type: 'batch-complete',
+			keys: ['section-1:0', 'section-1:1'],
+			completedBlocks: 3,
+			activeBatches: 1
+		});
 		progress.complete();
 
-		expect(output).toContain('[=====               ] 1/4 (25%)');
-		expect(output).toContain('paragraph 2/4');
-		expect(output).toContain('Codex started');
-		expect(output).toContain('[==========          ] 2/4 (50%)');
-		expect(output).toContain('[====================] 4/4 (100%)');
+		expect(target.output()).toContain('1/6 blocks · 2 active · 0 retries');
+		expect(target.output()).toContain('Retrying batch section-1:0: temporary');
+		expect(target.output()).toContain('3/6 blocks · 1 active · 1 retries');
+		expect(target.output()).toContain('Analysis complete');
 	});
 
-	it('prints durable phase lines for captured output', () => {
-		let output = '';
-		const progress = new TerminalAnalysisProgress(3, 0, {
-			isTTY: false,
-			write: (chunk) => {
-				output += String(chunk);
-				return true;
-			}
+	it('emits only durable events for captured output', () => {
+		const target = stream(false);
+		const progress = new TerminalAnalysisProgress(3, 0, target.stream);
+		progress.event({ type: 'batch-start', activeBatches: 1 });
+		expect(target.output()).toBe('');
+		progress.event({
+			type: 'batch-complete',
+			keys: ['section-1:0'],
+			completedBlocks: 1,
+			activeBatches: 0
 		});
-		progress.paragraph(0);
-		progress.event('thread.started');
-		progress.event('item.started');
 		progress.fail();
 
-		expect(output).toContain('0/3 (0%)');
-		expect(output).toContain('paragraph 1/3');
-		expect(output).toContain('Codex started');
-		expect(output).toContain('Preparing Word Help');
-		expect(output).toContain('Paused; checkpoint retained');
+		expect(target.output()).toContain('Batch complete: section-1:0');
+		expect(target.output()).toContain('Analysis paused; checkpoints retained');
+		expect(target.output()).not.toContain('active');
 	});
 });
