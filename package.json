@@ -5,6 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"import:source": "node scripts/import.ts",
+		"verify:source": "node scripts/verify-source.ts",
 		"publish:draft": "node scripts/publish-draft.ts",
 		"dev": "vite dev",
 		"build": "vite build",

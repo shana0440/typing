@@ -11,14 +11,29 @@ describe('Codex annotation validation', () => {
 	it('uses JavaScript UTF-16 offsets for source spans', () => {
 		const text = 'A 😊 intricate device remained still.';
 		const draft: ImportDraft = {
-			schemaVersion: 1,
-			status: 'draft',
+			schemaVersion: 2,
+			status: 'verified',
 			id: 'unicode-source',
 			metadata: {
 				title: 'Unicode Source',
 				author: null,
 				language: 'en',
-				originalUrl: 'https://example.com/unicode'
+				originalUrl: 'https://example.com/unicode',
+				requestedUrl: 'https://example.com/unicode',
+				finalUrl: 'https://example.com/unicode',
+				canonicalUrl: null,
+				titleSuggestions: [],
+				authorSuggestions: []
+			},
+			candidates: [],
+			selectedCandidateId: null,
+			blocked: null,
+			diagnostics: {
+				fetchedAt: '',
+				httpStatus: 200,
+				contentType: 'text/html',
+				redirected: false,
+				messages: []
 			},
 			source: {
 				sections: [

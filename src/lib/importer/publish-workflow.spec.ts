@@ -33,14 +33,29 @@ const publishedAnnotation = { ...validAnnotation, id: 'section-1:0-intricate' };
 
 function newDraft(): ImportDraft {
 	return {
-		schemaVersion: 1,
-		status: 'draft',
+		schemaVersion: 2,
+		status: 'verified',
 		id: 'a-careful-test-123456789abc',
 		metadata: {
 			title: 'A Careful Test',
 			author: 'Ada Example',
 			language: 'en',
-			originalUrl: 'https://example.com/careful-test'
+			originalUrl: 'https://example.com/careful-test',
+			requestedUrl: 'https://example.com/careful-test',
+			finalUrl: 'https://example.com/careful-test',
+			canonicalUrl: null,
+			titleSuggestions: [],
+			authorSuggestions: []
+		},
+		candidates: [],
+		selectedCandidateId: null,
+		blocked: null,
+		diagnostics: {
+			fetchedAt: '',
+			httpStatus: 200,
+			contentType: 'text/html',
+			redirected: false,
+			messages: []
 		},
 		source: structuredClone(source),
 		annotations: [],
@@ -303,7 +318,7 @@ if (process.argv[2] === 'app-server') {
 		expect(result.code).toBe(1);
 		expect(result.stderr).toContain('Codex analysis failed: simulated Codex failure');
 		expect(await readFile(result.catalogPath, 'utf8')).toBe('[]\n');
-		expect(JSON.parse(await readFile(result.draftPath, 'utf8')).status).toBe('draft');
+		expect(JSON.parse(await readFile(result.draftPath, 'utf8')).status).toBe('verified');
 	});
 
 	it('checkpoints each batch and resumes after a subprocess failure', async () => {
@@ -324,7 +339,7 @@ if (process.argv[2] === 'app-server') {
 		expect(interrupted.stdout).toContain('Analysis paused; checkpoints retained');
 		const checkpoint = JSON.parse(await readFile(interrupted.draftPath, 'utf8')) as ImportDraft;
 		expect(checkpoint).toMatchObject({
-			status: 'draft',
+			status: 'verified',
 			analysisProgress: {
 				completedBlocks: ['section-1:0'],
 				lastModel: 'test-model'

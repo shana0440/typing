@@ -318,6 +318,9 @@ export async function analyzeImportDraft(
 	draft: ImportDraft,
 	options: AnalysisOptions = {}
 ): Promise<AnalysisCheckpoint> {
+	if (draft.status !== 'verified' && draft.status !== 'analyzed') {
+		throw new ImportError('Codex analysis requires a verified Import Draft.');
+	}
 	const concurrency = options.concurrency ?? DEFAULT_ANALYSIS_CONCURRENCY;
 	const batchSize = options.batchSize ?? DEFAULT_ANALYSIS_BATCH_SIZE;
 	validateAnalysisSettings(concurrency, batchSize);

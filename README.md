@@ -43,15 +43,23 @@ You can preview the production build with `npm run preview`.
 
 ## Creating an Import Draft
 
-Import one complete, publicly reachable English HTML page for review:
+Attempt one credential-free public HTTP or HTTPS page:
 
 ```sh
 bun run import:source https://example.com/article
 ```
 
-The command writes a deterministic JSON draft under `.imports/drafts/`. It removes page chrome with Mozilla Readability, retains structured source prose for inspection, and does not add anything to the Catalog. PDF, authenticated, paywalled, non-English, unreachable, and incomplete sources are rejected.
+The command fetches static HTML with browser-like public headers and writes an extracted or blocked JSON draft under `.imports/drafts/`. It preserves the raw response and diagnostics in an adjacent `.artifacts` directory, which is ignored by Git and retained until explicitly deleted. It does not render JavaScript, authenticate, crawl continuation links, or add anything to the Catalog.
 
-Analyze and review a retained draft with the locally authenticated Codex CLI:
+For a successful extraction, compare the original page with the escaped structured candidates and approve one whole candidate:
+
+```sh
+bun run verify:source .imports/drafts/<draft-id>.json
+```
+
+Source Verification shows ranked Readability, semantic container, and cleaned-body candidates with their origins, warnings, URL provenance, and deterministic metadata suggestions. Title and author may be corrected; extracted prose cannot be edited. Analysis will not start until a candidate has been explicitly verified.
+
+Analyze a verified draft and perform final review with the locally authenticated Codex CLI:
 
 ```sh
 bun run publish:draft .imports/drafts/<draft-id>.json

@@ -97,6 +97,9 @@ async function main() {
 		batchSize
 	} = workflowArguments(process.argv.slice(2));
 	const draft = await readImportDraft(draftPath);
+	if (draft.status !== 'verified' && draft.status !== 'analyzed') {
+		throw new ImportError('Run Source Verification before Codex analysis.');
+	}
 	const terminal = createInterface({ input: process.stdin, output: process.stdout });
 	const savedModel = draft.analysisProgress?.lastModel;
 	const blocks = draftSourceBlocks(draft);
@@ -130,7 +133,7 @@ async function main() {
 					completedBlocks: checkpoint.completedBlocks,
 					lastModel: checkpoint.lastModel
 				};
-				draft.status = 'draft';
+				draft.status = 'verified';
 				draft.redistributionConfirmed = false;
 				await writeImportDraft(draftPath, draft);
 			}
