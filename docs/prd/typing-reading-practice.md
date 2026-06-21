@@ -8,7 +8,7 @@ The operator also needs to turn authorized English webpages into deployable Read
 
 Build a desktop-only, dark static reading and typing site. Its Catalog contains finite English Reading Sources that the reader types from beginning to end in an untimed Typing Session. A focused viewport shows a few lines around the current position, provides corrective feedback without scoring, saves Reading Progress after each completed word, and resumes on the same device.
 
-`Alt+H` opens Word Help for the current word or phrase and `Escape` closes it. Help contains a contextual Traditional Chinese explanation, the highlighted source sentence, and a labeled AI-generated English example. Import-time analysis prepares help for CEFR B2+ terms, idioms, and contextually unusual meanings without marking vocabulary in the typing surface.
+`Alt+H` opens Word Help for the current word or phrase and `Escape` closes it. Help contains a contextual Traditional Chinese explanation, the highlighted source sentence, and a labeled AI-generated English example. Import-time analysis prepares help for CEFR A2+ terms, idioms, and contextually unusual meanings without marking vocabulary in the typing surface.
 
 Provide a URL importer that extracts one complete HTML source, applies only the approved typing-friendly character replacements, delegates annotation analysis to an OAuth-authenticated Codex CLI, and opens a local preview. Explicit approval Publishes the Import Draft into static Catalog data. The operator commits generated files manually; GitHub Actions deploys the static SvelteKit site to GitHub Pages.
 
@@ -44,7 +44,7 @@ Provide a URL importer that extracts one complete HTML source, applies only the 
 28. As the operator, I want unsupported crawling, PDFs, paywall bypass, and incomplete sources rejected, so that import behavior remains predictable.
 29. As the operator, I want extraction to preserve source prose except for approved typing-friendly character replacements, so that AI cannot rewrite, correct, simplify, summarize, or paraphrase it.
 30. As the operator, I want page chrome excluded while title, author, language, structure, URL, normalized text, and annotations remain reviewable, so that I can verify the complete Import Draft.
-31. As the operator, I want AI to identify CEFR B2+ terms, idioms, and contextual meanings, so that Word Help is useful without annotating basic vocabulary.
+31. As the operator, I want AI to identify CEFR A2+ terms, idioms, and contextual meanings, so that Word Help is useful for intermediate learners.
 32. As the operator, I want AI annotations structurally separate from immutable source content, so that supplemental output cannot be mistaken for the work.
 33. As the operator, I want analysis delegated to my OAuth-authenticated Codex CLI, so that I do not manage a separate API key.
 34. As the operator, I want a local browser preview and explicit terminal approval, so that AI output is never Published automatically.

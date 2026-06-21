@@ -61,13 +61,13 @@ describe('Codex annotation validation', () => {
 					explanationZhTw: '表示具有許多複雜且互相連動的細節。',
 					generatedExample: 'The clock contains an intricate mechanism.',
 					category: 'term',
-					cefrLevel: 'B2'
+					cefrLevel: 'A2'
 				}
 			]
 		});
 
 		expect(start).toBe(5);
-		expect(annotations[0]).toMatchObject({ start: 5, end: 14 });
+		expect(annotations[0]).toMatchObject({ start: 5, end: 14, cefrLevel: 'A2' });
 	});
 
 	it('partitions by block count and source character limit', () => {

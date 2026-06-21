@@ -9,7 +9,7 @@ import { ImportError } from './extract.ts';
 import type { ImportAnnotation, ImportDraft } from './types.ts';
 
 const categories = ['term', 'idiom', 'phrasal-verb', 'contextual-meaning'] as const;
-const cefrLevels = ['B2', 'C1', 'C2'] as const;
+const cefrLevels = ['A2', 'B1', 'B2', 'C1', 'C2'] as const;
 const annotationKeys = [
 	'category',
 	'cefrLevel',
@@ -284,7 +284,7 @@ export function validateBatchAnalysis(
 function promptForBatch(draft: ImportDraft, blocks: DraftSourceBlock[]): string {
 	return [
 		'Analyze each exact English source block independently for contextual Word Help.',
-		'Identify CEFR B2+ terms, idioms, phrasal verbs, and contextually unusual meanings.',
+		'Identify CEFR A2+ terms, idioms, phrasal verbs, and contextually unusual meanings.',
 		'Return exactly one keyed result per source block, with Traditional Chinese explanations and one generated English example per annotation.',
 		"All offsets are JavaScript UTF-16 indices local to that result's sourceText. Never span blocks.",
 		'Copy every key and sourceText exactly. Never rewrite, correct, summarize, omit, duplicate, or mutate source content.',

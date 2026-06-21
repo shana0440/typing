@@ -15,7 +15,7 @@ export type WordHelpAnnotation = {
 	explanationZhTw: string;
 	generatedExample: string;
 	category: 'term' | 'idiom' | 'phrasal-verb' | 'contextual-meaning';
-	cefrLevel: 'B2' | 'C1' | 'C2' | null;
+	cefrLevel: 'A2' | 'B1' | 'B2' | 'C1' | 'C2' | null;
 };
 
 export type ReadingSource = {

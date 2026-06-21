@@ -29,7 +29,7 @@ The point a reader has reached in a Reading Source across one or more Typing Ses
 _Avoid_: Score, result, words per minute
 
 **Word Help**:
-An on-demand Traditional Chinese explanation and English usage example for a CEFR B2+ term, idiom, or contextually unusual meaning identified while importing a Reading Source.
+An on-demand Traditional Chinese explanation and English usage example for a CEFR A2+ term, idiom, or contextually unusual meaning identified while importing a Reading Source.
 _Avoid_: Dictionary popup, definition panel
 
 **Typing Error**:
