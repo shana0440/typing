@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TerminalAnalysisProgress } from './analysis-progress.ts';
 
 function stream(isTTY: boolean) {
@@ -16,6 +16,8 @@ function stream(isTTY: boolean) {
 }
 
 describe('analysis progress', () => {
+	afterEach(() => vi.useRealTimers());
+
 	it('renders one aggregate live line for an interactive terminal', () => {
 		const target = stream(true);
 		const progress = new TerminalAnalysisProgress(6, 1, target.stream);
@@ -57,5 +59,17 @@ describe('analysis progress', () => {
 		expect(target.output()).toContain('Batch complete: section-1:0');
 		expect(target.output()).toContain('Analysis paused; checkpoints retained');
 		expect(target.output()).not.toContain('active');
+	});
+
+	it('keeps elapsed time moving while Codex is active', () => {
+		vi.useFakeTimers();
+		const target = stream(true);
+		const progress = new TerminalAnalysisProgress(6, 0, target.stream);
+		progress.event({ type: 'batch-start', activeBatches: 1 });
+
+		vi.advanceTimersByTime(2_100);
+		progress.interrupted();
+
+		expect(target.output()).toContain('0/6 blocks · 1 active · 0 retries · 2s');
 	});
 });

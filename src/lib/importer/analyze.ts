@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFileSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -22,9 +23,10 @@ const annotationKeys = [
 	'start'
 ];
 const resultKeys = ['annotations', 'key', 'sourceText'];
-export const DEFAULT_ANALYSIS_CONCURRENCY = 3;
-export const DEFAULT_ANALYSIS_BATCH_SIZE = 3;
+export const DEFAULT_ANALYSIS_CONCURRENCY = 1;
+export const DEFAULT_ANALYSIS_BATCH_SIZE = 1;
 export const MAX_BATCH_CHARACTERS = 24_000;
+export const DEFAULT_ANALYSIS_REQUEST_TIMEOUT_MS = 10 * 60 * 1_000;
 
 const annotationSchema = {
 	type: 'object',
@@ -85,6 +87,8 @@ export type AnalysisOptions = {
 	batchSize?: number;
 	signal?: AbortSignal;
 	retryDelayMs?: number;
+	requestTimeoutMs?: number;
+	diagnosticDirectory?: string;
 	onAnalysisEvent?: (event: AnalysisEvent) => void;
 	onCheckpoint?: (checkpoint: AnalysisCheckpoint) => Promise<void>;
 };
@@ -143,27 +147,58 @@ function runCodex(
 	command: string,
 	args: string[],
 	prompt: string,
-	signal?: AbortSignal
+	signal: AbortSignal | undefined,
+	workingDirectory: string,
+	timeoutMs: number,
+	diagnostics?: { eventsPath: string; stderrPath: string }
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		if (signal?.aborted) return reject(abortedError());
-		const child: ChildProcess = spawn(command, args, { stdio: ['pipe', 'ignore', 'pipe'] });
+		const child: ChildProcess = spawn(command, args, {
+			cwd: workingDirectory,
+			stdio: ['pipe', 'pipe', 'pipe']
+		});
 		let stderr = '';
 		let settled = false;
 		const finish = (error?: Error) => {
 			if (settled) return;
 			settled = true;
+			clearTimeout(timeout);
 			signal?.removeEventListener('abort', abort);
 			if (error) reject(error);
 			else resolve();
 		};
+		const timeout = setTimeout(() => {
+			child.kill('SIGTERM');
+			finish(
+				new ImportError(
+					`Codex analysis request timed out after ${Math.round(timeoutMs / 1_000)} seconds.`
+				)
+			);
+		}, timeoutMs);
+		timeout.unref?.();
 		const abort = () => {
 			child.kill('SIGTERM');
 			finish(abortedError());
 		};
 		signal?.addEventListener('abort', abort, { once: true });
+		child.stdout?.setEncoding('utf8');
+		child.stdout?.on('data', (chunk: string) => {
+			if (diagnostics) appendFileSync(diagnostics.eventsPath, chunk, 'utf8');
+		});
 		child.stderr?.setEncoding('utf8');
-		child.stderr?.on('data', (chunk: string) => (stderr += chunk));
+		child.stderr?.on('data', (chunk: string) => {
+			stderr += chunk;
+			if (diagnostics) appendFileSync(diagnostics.stderrPath, chunk, 'utf8');
+			if (/failed to parse function arguments/i.test(chunk)) {
+				child.kill('SIGTERM');
+				finish(
+					new ImportError(
+						'Codex emitted malformed tool-call arguments during output-only analysis.'
+					)
+				);
+			}
+		});
 		child.stdin?.on('error', () => {
 			// Process termination is reported by the error or close handler.
 		});
@@ -260,6 +295,16 @@ export function validateBatchAnalysis(
 	blocks: DraftSourceBlock[],
 	value: unknown
 ): ImportAnnotation[] {
+	const validated = validateAvailableBatchAnalysis(blocks, value);
+	const missing = blocks.find((block) => !validated.completedKeys.has(block.key));
+	if (missing) throw new ImportError(`Codex omitted block result "${missing.key}".`);
+	return validated.annotations;
+}
+
+function validateAvailableBatchAnalysis(
+	blocks: DraftSourceBlock[],
+	value: unknown
+): { annotations: ImportAnnotation[]; completedKeys: Set<string> } {
 	if (!value || typeof value !== 'object' || !isDeepStrictEqual(Object.keys(value), ['results']))
 		throw new ImportError('Codex returned malformed JSON output.');
 	const results = (value as { results?: unknown }).results;
@@ -276,14 +321,16 @@ export function validateBatchAnalysis(
 		seen.add(key);
 		annotations.push(...validateBlockAnalysis(requested.get(key)!, result));
 	}
-	const missing = blocks.find((block) => !seen.has(block.key));
-	if (missing) throw new ImportError(`Codex omitted block result "${missing.key}".`);
-	return annotations.sort((left, right) => left.start - right.start);
+	return {
+		annotations: annotations.sort((left, right) => left.start - right.start),
+		completedKeys: seen
+	};
 }
 
 function promptForBatch(draft: ImportDraft, blocks: DraftSourceBlock[]): string {
 	return [
 		'Analyze each exact English source block independently for contextual Word Help.',
+		'Do not call tools, inspect files, search, or run commands. Produce the final structured response directly from the supplied data.',
 		'Identify CEFR A2+ terms, idioms, phrasal verbs, and contextually unusual meanings.',
 		'Return exactly one keyed result per source block, with Traditional Chinese explanations and one generated English example per annotation.',
 		"All offsets are JavaScript UTF-16 indices local to that result's sourceText. Never span blocks.",
@@ -323,6 +370,7 @@ export async function analyzeImportDraft(
 	}
 	const concurrency = options.concurrency ?? DEFAULT_ANALYSIS_CONCURRENCY;
 	const batchSize = options.batchSize ?? DEFAULT_ANALYSIS_BATCH_SIZE;
+	const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_ANALYSIS_REQUEST_TIMEOUT_MS;
 	validateAnalysisSettings(concurrency, batchSize);
 	const blocks = draftSourceBlocks(draft);
 	const digest = sourceDigest(draft);
@@ -340,14 +388,21 @@ export async function analyzeImportDraft(
 	);
 	const directory = await mkdtemp(join(tmpdir(), 'typing-codex-'));
 	const schemaPath = join(directory, 'analysis-schema.json');
+	const diagnosticDirectory = options.diagnosticDirectory;
 	let nextBatch = 0;
 	let activeBatches = 0;
 	let retryCount = 0;
 	let failure: Error | undefined;
 	let checkpointQueue = Promise.resolve();
 	try {
-		await writeFile(schemaPath, JSON.stringify(analysisSchema), 'utf8');
+		const serializedSchema = JSON.stringify(analysisSchema, null, 2);
+		await writeFile(schemaPath, serializedSchema, 'utf8');
+		if (diagnosticDirectory) {
+			await mkdir(diagnosticDirectory, { recursive: true });
+			await writeFile(join(diagnosticDirectory, 'analysis-schema.json'), serializedSchema, 'utf8');
+		}
 		const runBatch = async (batch: DraftSourceBlock[]) => {
+			let pending = batch;
 			activeBatches += 1;
 			options.onAnalysisEvent?.({ type: 'batch-start', activeBatches });
 			try {
@@ -355,10 +410,27 @@ export async function analyzeImportDraft(
 					if (options.signal?.aborted) throw abortedError();
 					const outputPath = join(directory, `${randomUUID()}.json`);
 					try {
+						const requested = pending;
+						const requestPrompt = promptForBatch(draft, requested);
 						const args = [
 							'exec',
 							'--json',
 							'--ephemeral',
+							'--ignore-user-config',
+							'--ignore-rules',
+							'--skip-git-repo-check',
+							'--disable',
+							'shell_tool',
+							'--disable',
+							'unified_exec',
+							'--disable',
+							'multi_agent',
+							'--disable',
+							'apps',
+							'--disable',
+							'hooks',
+							'-c',
+							'web_search="disabled"',
 							'--sandbox',
 							'read-only',
 							'--output-schema',
@@ -368,49 +440,89 @@ export async function analyzeImportDraft(
 						];
 						if (options.model) args.push('--model', options.model);
 						args.push('-');
+						let requestDiagnostics:
+							| { directory: string; eventsPath: string; stderrPath: string }
+							| undefined;
+						if (diagnosticDirectory) {
+							const requestDirectory = join(
+								diagnosticDirectory,
+								`${new Date().toISOString().replaceAll(':', '-')}-${randomUUID()}`
+							);
+							await mkdir(requestDirectory, { recursive: true });
+							requestDiagnostics = {
+								directory: requestDirectory,
+								eventsPath: join(requestDirectory, 'events.jsonl'),
+								stderrPath: join(requestDirectory, 'stderr.log')
+							};
+							await writeFile(requestDiagnostics.eventsPath, '', 'utf8');
+							await writeFile(requestDiagnostics.stderrPath, '', 'utf8');
+							await writeFile(join(requestDirectory, 'prompt.txt'), requestPrompt, 'utf8');
+							await writeFile(
+								join(requestDirectory, 'request.json'),
+								`${JSON.stringify({ startedAt: new Date().toISOString(), attempt: attempt + 1, model: options.model ?? null, keys: requested.map((block) => block.key), command: options.codexCommand ?? process.env.CODEX_COMMAND ?? 'codex', args }, null, 2)}\n`,
+								'utf8'
+							);
+						}
 						await runCodex(
 							options.codexCommand ?? process.env.CODEX_COMMAND ?? 'codex',
 							args,
-							promptForBatch(draft, batch),
-							options.signal
+							requestPrompt,
+							options.signal,
+							directory,
+							requestTimeoutMs,
+							requestDiagnostics
 						);
 						let output: unknown;
 						try {
-							output = JSON.parse(await readFile(outputPath, 'utf8'));
+							const rawOutput = await readFile(outputPath, 'utf8');
+							if (requestDiagnostics) {
+								await writeFile(
+									join(requestDiagnostics.directory, 'final-response.json'),
+									rawOutput,
+									'utf8'
+								);
+							}
+							output = JSON.parse(rawOutput);
 						} catch {
 							throw new ImportError('Codex returned malformed JSON output.');
 						}
-						const batchAnnotations = validateBatchAnalysis(batch, output);
-						checkpointQueue = checkpointQueue.then(async () => {
-							annotations = [...annotations, ...batchAnnotations].sort(
-								(left, right) => left.start - right.start || left.id.localeCompare(right.id)
-							);
-							for (const block of batch) completed.add(block.key);
-							const completedBlocks = [...completed].sort(
-								(left, right) => blockOrder.get(left)! - blockOrder.get(right)!
-							);
-							await options.onCheckpoint?.({
-								sourceDigest: digest,
-								completedBlocks,
-								lastModel: options.model ?? null,
-								annotations
+						const validated = validateAvailableBatchAnalysis(requested, output);
+						const returned = requested.filter((block) => validated.completedKeys.has(block.key));
+						pending = requested.filter((block) => !validated.completedKeys.has(block.key));
+						if (returned.length)
+							checkpointQueue = checkpointQueue.then(async () => {
+								annotations = [...annotations, ...validated.annotations].sort(
+									(left, right) => left.start - right.start || left.id.localeCompare(right.id)
+								);
+								for (const block of returned) completed.add(block.key);
+								const completedBlocks = [...completed].sort(
+									(left, right) => blockOrder.get(left)! - blockOrder.get(right)!
+								);
+								await options.onCheckpoint?.({
+									sourceDigest: digest,
+									completedBlocks,
+									lastModel: options.model ?? null,
+									annotations
+								});
+								options.onAnalysisEvent?.({
+									type: 'batch-complete',
+									keys: returned.map((block) => block.key),
+									completedBlocks: completed.size,
+									activeBatches: pending.length ? activeBatches : activeBatches - 1
+								});
 							});
-							options.onAnalysisEvent?.({
-								type: 'batch-complete',
-								keys: batch.map((block) => block.key),
-								completedBlocks: completed.size,
-								activeBatches: activeBatches - 1
-							});
-						});
 						await checkpointQueue;
-						return;
+						if (!pending.length) return;
+						throw new ImportError(
+							`Codex omitted block result${pending.length === 1 ? '' : 's'} ${pending.map((block) => `"${block.key}"`).join(', ')}.`
+						);
 					} catch (error) {
 						if (options.signal?.aborted) throw abortedError();
 						if (attempt === 1) throw error;
 						retryCount += 1;
 						options.onAnalysisEvent?.({
 							type: 'batch-retry',
-							keys: batch.map((block) => block.key),
+							keys: pending.map((block) => block.key),
 							retryCount,
 							activeBatches,
 							error: error instanceof Error ? error.message : String(error)

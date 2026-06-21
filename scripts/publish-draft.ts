@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline/promises';
-import { resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import {
 	analyzeImportDraft,
 	completedBlockCount,
@@ -56,14 +56,18 @@ async function confirmed(question: string, terminal: ReturnType<typeof createInt
 
 async function selectModel(
 	terminal: ReturnType<typeof createInterface>,
-	savedModel: string | null | undefined
+	savedModel: string | null | undefined,
+	largeSource: boolean
 ): Promise<string> {
 	const models = await listCodexModels();
 	console.log('\nAvailable Codex models:');
 	for (const [index, model] of models.entries()) {
 		const labels = [
 			model.isDefault ? 'Codex default' : '',
-			model.model === savedModel ? 'previous' : ''
+			model.model === savedModel ? 'previous' : '',
+			largeSource && /mini/i.test(`${model.model} ${model.displayName}`)
+				? 'faster for large sources'
+				: ''
 		]
 			.filter(Boolean)
 			.join(', ');
@@ -71,11 +75,14 @@ async function selectModel(
 			`  ${index + 1}. ${model.displayName} (${model.model})${labels ? ` [${labels}]` : ''}\n     ${model.description}`
 		);
 	}
+	const fasterModel = largeSource
+		? models.findIndex((model) => /mini/i.test(`${model.model} ${model.displayName}`))
+		: -1;
+	const previousModel = models.findIndex((model) => model.model === savedModel);
+	const defaultModel = models.findIndex((model) => model.isDefault);
 	const preferred = Math.max(
 		0,
-		models.findIndex((model) => model.model === savedModel) >= 0
-			? models.findIndex((model) => model.model === savedModel)
-			: models.findIndex((model) => model.isDefault)
+		fasterModel >= 0 ? fasterModel : previousModel >= 0 ? previousModel : defaultModel
 	);
 
 	while (true) {
@@ -101,15 +108,36 @@ async function main() {
 		throw new ImportError('Run Source Verification before Codex analysis.');
 	}
 	const terminal = createInterface({ input: process.stdin, output: process.stdout });
+	const diagnosticDirectory = join(
+		dirname(draftPath),
+		`${basename(draftPath, '.json')}.artifacts`,
+		'codex'
+	);
+	console.log(`Codex diagnostics: ${diagnosticDirectory}`);
 	const savedModel = draft.analysisProgress?.lastModel;
 	const blocks = draftSourceBlocks(draft);
 	const savedBlocks = completedBlockCount(draft);
+	const remainingBlocks = blocks.length - savedBlocks;
+	const largeSource = remainingBlocks >= 100;
+	console.log(
+		`Analysis workload: ${remainingBlocks} remaining blocks, at least ${Math.ceil(remainingBlocks / batchSize)} Codex requests, ${concurrency} concurrent.`
+	);
+	if (largeSource) {
+		console.log(
+			'Large source detected. A Mini model is usually much faster; frontier models may take hours.'
+		);
+	}
 	const model =
 		(requestedModel ??
-			(savedBlocks < blocks.length ? await selectModel(terminal, savedModel) : savedModel)) ||
+			(savedBlocks < blocks.length
+				? await selectModel(terminal, savedModel, largeSource)
+				: savedModel)) ||
 		savedModel ||
 		undefined;
 	console.log(`Using Codex model: ${model ?? 'configured default'}`);
+	console.log(
+		'Valid block results are checkpointed immediately. Press Ctrl+C once to stop safely and resume later.'
+	);
 	const progress = new TerminalAnalysisProgress(blocks.length, savedBlocks);
 	const cancellation = new AbortController();
 	let interrupted = false;
@@ -124,6 +152,7 @@ async function main() {
 			model,
 			concurrency,
 			batchSize,
+			diagnosticDirectory,
 			signal: cancellation.signal,
 			onAnalysisEvent: (event) => progress.event(event),
 			onCheckpoint: async (checkpoint) => {

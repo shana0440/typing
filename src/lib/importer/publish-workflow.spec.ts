@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -95,7 +95,12 @@ if (process.argv[2] === 'app-server') {
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (chunk) => prompt += chunk);
   process.stdin.on('end', () => {
-    if (process.env.FAKE_CODEX_LOG) appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ args: process.argv.slice(2), prompt }) + '\\n');
+    if (process.env.FAKE_CODEX_LOG) appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ args: process.argv.slice(2), prompt, cwd: process.cwd() }) + '\\n');
+	if (process.env.FAKE_CODEX_TOOL_ERROR === '1') {
+	  console.error('ERROR codex_core::tools::router: error=failed to parse function arguments: EOF while parsing a string at line 1 column 447');
+	  setInterval(() => {}, 1000);
+	  return;
+	}
     console.log(JSON.stringify({ type: 'thread.started', thread_id: 'fake-thread' }));
     console.log(JSON.stringify({ type: 'turn.started' }));
     console.log(JSON.stringify({ type: 'item.started', item: { type: 'agent_message' } }));
@@ -106,7 +111,8 @@ if (process.argv[2] === 'app-server') {
     const input = JSON.parse(prompt.trim().split('\\n\\n').at(-1));
     let response;
     if (process.env.FAKE_CODEX_DYNAMIC === '1') {
-      response = JSON.stringify({ results: input.blocks.map((block) => ({ key: block.key, sourceText: block.sourceText, annotations: [] })) });
+      const blocks = process.env.FAKE_CODEX_OMIT_FIRST === '1' && input.blocks.length > 1 ? input.blocks.slice(1) : input.blocks;
+      response = JSON.stringify({ results: blocks.map((block) => ({ key: block.key, sourceText: block.sourceText, annotations: [] })) });
     } else {
       try {
         const configured = JSON.parse(process.env.FAKE_CODEX_RESPONSE ?? '{}');
@@ -138,6 +144,8 @@ if (process.argv[2] === 'app-server') {
 		fail?: boolean;
 		failOnText?: string;
 		dynamic?: boolean;
+		omitFirst?: boolean;
+		toolError?: boolean;
 		concurrency?: number;
 		batchSize?: number;
 		name: string;
@@ -182,6 +190,8 @@ if (process.argv[2] === 'app-server') {
 					FAKE_CODEX_FAIL: options.fail ? '1' : '0',
 					FAKE_CODEX_FAIL_ON_TEXT: options.failOnText ?? '',
 					FAKE_CODEX_DYNAMIC: options.dynamic ? '1' : '0',
+					FAKE_CODEX_OMIT_FIRST: options.omitFirst ? '1' : '0',
+					FAKE_CODEX_TOOL_ERROR: options.toolError ? '1' : '0',
 					FAKE_CODEX_LOG: logPath,
 					IMPORT_PREVIEW_NO_OPEN: '1'
 				},
@@ -239,6 +249,15 @@ if (process.argv[2] === 'app-server') {
 			expect.arrayContaining([
 				'exec',
 				'--ephemeral',
+				'--ignore-user-config',
+				'--ignore-rules',
+				'--skip-git-repo-check',
+				'shell_tool',
+				'unified_exec',
+				'multi_agent',
+				'apps',
+				'hooks',
+				'web_search="disabled"',
 				'--sandbox',
 				'read-only',
 				'--output-schema',
@@ -246,6 +265,9 @@ if (process.argv[2] === 'app-server') {
 			])
 		);
 		expect(codexLog.args).toEqual(expect.arrayContaining(['--model', 'test-model']));
+		expect(codexLog.cwd).toContain('typing-codex-');
+		expect(codexLog.cwd).not.toBe(projectRoot);
+		expect(codexLog.prompt).toContain('Do not call tools, inspect files, search, or run commands.');
 		expect(codexLog.prompt).toContain(
 			JSON.stringify({
 				title: 'A Careful Test',
@@ -258,6 +280,30 @@ if (process.argv[2] === 'app-server') {
 				]
 			})
 		);
+		const diagnosticDirectory = join(directory, 'approved', 'draft.artifacts', 'codex');
+		expect(
+			JSON.parse(await readFile(join(diagnosticDirectory, 'analysis-schema.json'), 'utf8'))
+		).toMatchObject({ type: 'object' });
+		const requestDirectories = (await readdir(diagnosticDirectory)).filter(
+			(name) => name !== 'analysis-schema.json'
+		);
+		expect(requestDirectories).toHaveLength(1);
+		const requestDirectory = join(diagnosticDirectory, requestDirectories[0]);
+		expect(await readFile(join(requestDirectory, 'events.jsonl'), 'utf8')).toContain(
+			'"type":"turn.completed"'
+		);
+		expect(await readFile(join(requestDirectory, 'stderr.log'), 'utf8')).toBe('');
+		expect(await readFile(join(requestDirectory, 'prompt.txt'), 'utf8')).toContain(sourceText);
+		expect(
+			JSON.parse(await readFile(join(requestDirectory, 'request.json'), 'utf8'))
+		).toMatchObject({
+			attempt: 1,
+			model: 'test-model',
+			keys: ['section-1:0']
+		});
+		expect(
+			JSON.parse(await readFile(join(requestDirectory, 'final-response.json'), 'utf8'))
+		).toMatchObject({ results: [{ key: 'section-1:0' }] });
 
 		const second = await runWorkflow({ name: 'approved-again', input: 'yes\nyes\n', response });
 		expect(await readFile(second.catalogPath, 'utf8')).toBe(catalogArtifact);
@@ -321,6 +367,17 @@ if (process.argv[2] === 'app-server') {
 		expect(JSON.parse(await readFile(result.draftPath, 'utf8')).status).toBe('verified');
 	});
 
+	it('fails fast when Codex emits malformed tool-call arguments', async () => {
+		const startedAt = Date.now();
+		const result = await runWorkflow({ name: 'malformed-tool-call', toolError: true });
+
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain(
+			'Codex emitted malformed tool-call arguments during output-only analysis'
+		);
+		expect(Date.now() - startedAt).toBeLessThan(5_000);
+	});
+
 	it('checkpoints each batch and resumes after a subprocess failure', async () => {
 		const secondText =
 			'A second paragraph should be analyzed only after the saved first checkpoint.';
@@ -368,9 +425,9 @@ if (process.argv[2] === 'app-server') {
 		expect(logs.filter((entry) => entry.prompt.includes(secondText))).toHaveLength(3);
 	});
 
-	it('batches three source blocks per Codex request by default', async () => {
+	it('analyzes one source block per Codex request by default', async () => {
 		const draft = newDraft();
-		for (let index = 1; index < 7; index += 1) {
+		for (let index = 1; index < 3; index += 1) {
 			draft.source.sections[0].blocks.push({
 				type: 'paragraph',
 				text: `Distinct source block ${index} contains enough text for independent analysis.`
@@ -391,7 +448,47 @@ if (process.argv[2] === 'app-server') {
 			.map(
 				(entry) => JSON.parse(entry.prompt.trim().split('\n\n').at(-1)!) as { blocks: unknown[] }
 			);
-		expect(requests.map((request) => request.blocks.length).sort()).toEqual([1, 3, 3]);
+		expect(requests.map((request) => request.blocks.length)).toEqual([1, 1, 1]);
+	});
+
+	it('checkpoints valid results and retries only an omitted block', async () => {
+		const draft = newDraft();
+		draft.source.sections[0].blocks.push(
+			{ type: 'paragraph', text: 'Second block for partial batch recovery.' },
+			{ type: 'paragraph', text: 'Third block for partial batch recovery.' }
+		);
+		const result = await runWorkflow({
+			name: 'partial-batch-recovery',
+			draft,
+			dynamic: true,
+			omitFirst: true,
+			input: 'no\n',
+			concurrency: 1,
+			batchSize: 3
+		});
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain('Retrying batch section-1:0');
+		const completed = JSON.parse(await readFile(result.draftPath, 'utf8')) as ImportDraft;
+		expect(completed.analysisProgress?.completedBlocks).toEqual([
+			'section-1:0',
+			'section-1:1',
+			'section-1:2'
+		]);
+		const requests = (await readFile(result.logPath, 'utf8'))
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line) as { prompt: string })
+			.map(
+				(entry) =>
+					JSON.parse(entry.prompt.trim().split('\n\n').at(-1)!) as {
+						blocks: Array<{ key: string }>;
+					}
+			);
+		expect(requests.map((request) => request.blocks.map((block) => block.key))).toEqual([
+			['section-1:0', 'section-1:1', 'section-1:2'],
+			['section-1:0']
+		]);
 	});
 
 	it.each([

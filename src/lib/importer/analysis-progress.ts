@@ -10,12 +10,17 @@ export class TerminalAnalysisProgress {
 	#active = 0;
 	#retries = 0;
 	#finished = false;
+	#heartbeat: ReturnType<typeof setInterval> | undefined;
 
 	constructor(total: number, completed = 0, stream: ProgressStream = process.stdout) {
 		this.#stream = stream;
 		this.#total = total;
 		this.#completed = completed;
-		if (this.#stream.isTTY) this.#render();
+		if (this.#stream.isTTY) {
+			this.#render();
+			this.#heartbeat = setInterval(() => this.#render(), 1_000);
+			this.#heartbeat.unref?.();
+		}
 	}
 
 	event(event: AnalysisEvent): void {
@@ -50,6 +55,7 @@ export class TerminalAnalysisProgress {
 	#finish(label: string): void {
 		if (this.#finished) return;
 		this.#finished = true;
+		if (this.#heartbeat) clearInterval(this.#heartbeat);
 		this.#active = 0;
 		this.#durable(label);
 	}
