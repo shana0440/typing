@@ -1,22 +1,8 @@
-# sv
+# Typing
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Typing-assisted reading practice with section progress and contextual Word Help.
 
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
-
-```sh
-# create a new project
-npx sv create my-app
-```
-
-To recreate this project with the same configuration:
-
-```sh
-# recreate this project
-bun x sv@0.16.1 create --template minimal --types ts --add prettier eslint vitest="usages:unit,component" playwright tailwindcss="plugins:typography,forms" sveltekit-adapter="adapter:static" mcp="ide:other+setup:local" --install bun typing
-```
+**Live site:** [shana0440.github.io/typing](https://shana0440.github.io/typing/)
 
 ## Developing
 
@@ -39,7 +25,8 @@ npm run build
 
 You can preview the production build with `npm run preview`.
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+Pushes to `master` are checked, built with the `/typing` base path, and deployed to GitHub
+Pages by [the Pages workflow](.github/workflows/pages.yml).
 
 ## Creating an Import Draft
 
