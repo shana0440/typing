@@ -24,10 +24,16 @@
 	let activeHelp = $state<WordHelpAnnotation | null>(null);
 	let helpMessage = $state<string | null>(null);
 	let typingStage = $state<HTMLElement>();
-	let helpPanel = $state<HTMLElement>();
 
 	const progress = $derived(text.length === 0 ? 0 : Math.round((position / text.length) * 100));
 	const sectionTitle = $derived(section.title);
+	const helpPositions = $derived.by(() => {
+		const positions = new SvelteSet<number>();
+		for (const annotation of data.section.wordHelp) {
+			for (let index = annotation.start; index < annotation.end; index += 1) positions.add(index);
+		}
+		return positions;
+	});
 	const completionDate = $derived(
 		completedAt
 			? new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(completedAt))
@@ -70,11 +76,19 @@
 		typingStage?.focus({ preventScroll: true });
 	}
 
-	async function openHelp() {
-		if (!source) return;
-		const annotation = data.section.wordHelp.find(
-			(candidate) => position >= candidate.start && position < candidate.end
+	function helpAt(index: number) {
+		return data.section.wordHelp.find(
+			(candidate) => index >= candidate.start && index < candidate.end
 		);
+	}
+
+	function hasHelp(index: number) {
+		return helpPositions.has(index);
+	}
+
+	function openHelp() {
+		if (!source) return;
+		const annotation = helpAt(position);
 		if (!annotation) {
 			helpMessage = 'No Word Help was prepared for this position.';
 			return;
@@ -83,8 +97,6 @@
 		helpMessage = null;
 		error = null;
 		activeHelp = annotation;
-		await tick();
-		helpPanel?.focus({ preventScroll: true });
 	}
 
 	function closeHelp() {
@@ -98,6 +110,7 @@
 
 		position -= 1;
 		while (position > 0 && text[position] === '\n') position -= 1;
+		activeHelp = helpAt(position) ?? null;
 		incorrectPositions.delete(position);
 		error = null;
 		helpMessage = null;
@@ -127,13 +140,9 @@
 		if (!source || !hydrated || completed) return;
 		if (event.ctrlKey || event.metaKey) return;
 
-		if (activeHelp) {
-			if (event.key === 'Escape') {
-				event.preventDefault();
-				closeHelp();
-			} else if (event.key === 'Backspace' || event.key.length === 1) {
-				event.preventDefault();
-			}
+		if (event.key === 'Escape' && activeHelp) {
+			event.preventDefault();
+			closeHelp();
 			return;
 		}
 
@@ -152,6 +161,8 @@
 
 		event.preventDefault();
 		const inputPosition = position;
+		const annotation = helpAt(inputPosition);
+		if (annotation) activeHelp = annotation;
 		const expectedCharacter = text[inputPosition];
 		if (event.key !== expectedCharacter) {
 			incorrectPositions.add(inputPosition);
@@ -250,23 +261,65 @@
 				</p>
 				<p class="shortcut-hint"><kbd>Alt</kbd><span>+</span><kbd>H</kbd> for word help</p>
 			</div>
-			<div class="text-viewport">
-				<div class="reading-rail" aria-hidden="true">
-					<span style:height={`${progress}%`}></span>
+			<div class="reading-desk">
+				<div class="text-viewport">
+					<div class="reading-rail" aria-hidden="true">
+						<span style:height={`${progress}%`}></span>
+					</div>
+					<div class="source-text" aria-label="Reading Source text">
+						{#each Array.from(text) as character, index (index)}
+							{#if character === '\n'}
+								<br aria-hidden="true" />
+							{:else}
+								<span
+									class:help-character={hasHelp(index)}
+									class:completed-character={index < position}
+									class:incorrect-character={incorrectPositions.has(index)}
+									class:current-character={index === position}>{character}</span
+								>
+							{/if}
+						{/each}
+					</div>
 				</div>
-				<div class="source-text" aria-label="Reading Source text">
-					{#each Array.from(text) as character, index (index)}
-						{#if character === '\n'}
-							<br aria-hidden="true" />
-						{:else}
-							<span
-								class:completed-character={index < position}
-								class:incorrect-character={incorrectPositions.has(index)}
-								class:current-character={index === position}>{character}</span
+
+				<aside class="word-help" aria-labelledby="word-help-title" aria-live="polite">
+					{#if activeHelp && helpSentence}
+						<header class="word-help-header">
+							<div>
+								<p class="eyebrow">Word Help</p>
+								<h2 id="word-help-title">{helpSentence.term}</h2>
+							</div>
+							<button
+								class="close-help"
+								type="button"
+								onclick={closeHelp}
+								aria-label="Clear Word Help">Clear</button
 							>
-						{/if}
-					{/each}
-				</div>
+						</header>
+
+						<p class="help-explanation" lang="zh-Hant">{activeHelp.explanationZhTw}</p>
+
+						<div class="help-section">
+							<h3>In this source</h3>
+							<blockquote>
+								{helpSentence.before}<mark>{helpSentence.term}</mark>{helpSentence.after}
+							</blockquote>
+						</div>
+
+						<div class="help-section">
+							<h3>Generated example</h3>
+							<p>{activeHelp.generatedExample}</p>
+						</div>
+					{:else}
+						<div class="help-empty">
+							<p class="eyebrow">Word Help</p>
+							<h2 id="word-help-title">Keep typing</h2>
+							<p>
+								Words with a dotted underline include help. Their notes appear here automatically.
+							</p>
+						</div>
+					{/if}
+				</aside>
 			</div>
 			<p
 				class:error-visible={error !== null || helpMessage !== null}
@@ -278,41 +331,5 @@
 					: (helpMessage ?? ' ')}
 			</p>
 		</section>
-
-		{#if activeHelp && helpSentence}
-			<div class="help-backdrop" aria-hidden="true"></div>
-			<div
-				class="word-help"
-				role="dialog"
-				aria-modal="true"
-				aria-labelledby="word-help-title"
-				tabindex="-1"
-				bind:this={helpPanel}
-			>
-				<header class="word-help-header">
-					<div>
-						<p class="eyebrow">Word Help</p>
-						<h2 id="word-help-title">{helpSentence.term}</h2>
-					</div>
-					<button class="close-help" type="button" onclick={closeHelp} aria-label="Close Word Help"
-						>Escape</button
-					>
-				</header>
-
-				<p class="help-explanation" lang="zh-Hant">{activeHelp.explanationZhTw}</p>
-
-				<div class="help-section">
-					<h3>In this source</h3>
-					<blockquote>
-						{helpSentence.before}<mark>{helpSentence.term}</mark>{helpSentence.after}
-					</blockquote>
-				</div>
-
-				<div class="help-section">
-					<h3>Generated example</h3>
-					<p>{activeHelp.generatedExample}</p>
-				</div>
-			</div>
-		{/if}
 	</main>
 {/if}

@@ -42,6 +42,45 @@ test('direct section navigation restores only that section', async ({ page }) =>
 	expect(progress.sources[sourceId].sections['section-3']).toBeUndefined();
 });
 
+test('reading text scrolls and word help opens without interrupting typing', async ({ page }) => {
+	await page.goto(sectionPath('section-2'));
+	const viewport = page.locator('.text-viewport');
+	await expect
+		.poll(() => viewport.evaluate((element) => element.scrollHeight > element.clientHeight))
+		.toBe(true);
+	await expect
+		.poll(() =>
+			viewport.evaluate((element) => {
+				const bounds = element.getBoundingClientRect();
+				return Math.abs(bounds.left + bounds.width / 2 - window.innerWidth / 2);
+			})
+		)
+		.toBeLessThan(1);
+	await expect.poll(() => viewport.evaluate((element) => element.clientWidth)).toBeGreaterThan(800);
+	await expect(page.locator('.help-character').first()).toBeVisible();
+
+	await page.evaluate(({ key, value }) => localStorage.setItem(key, value), {
+		key: 'typing-practice:reading-progress',
+		value: stored({
+			'section-2': {
+				position: 50,
+				textLength: 35427,
+				lastActiveAt: '2026-06-22T00:00:00.000Z',
+				completedAt: null
+			}
+		})
+	});
+	await page.reload();
+	const typingStage = page.getByRole('region', { name: 'Typing Session' });
+	await expect(typingStage).toBeFocused();
+	await page.keyboard.type('were striking');
+	await expect(
+		page.getByRole('complementary').getByRole('heading', { name: 'were striking thirteen' })
+	).toBeVisible();
+	await expect(typingStage).toBeFocused();
+	await expect(page.locator('.current-character')).toHaveText('t');
+});
+
 test('continue, aggregate status, next section, and restart are section-aware', async ({
 	page
 }) => {
