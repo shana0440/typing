@@ -1,4 +1,6 @@
 import catalogData from './catalog-data/catalog.json';
+import catalogIndex from './catalog-data/index.json';
+import { assembleSourcePackage, type SourceManifest, type SourcePackage } from './catalog-package';
 
 export type ReadingSection = {
 	id: string;
@@ -28,7 +30,57 @@ export type ReadingSource = {
 	wordHelp: WordHelpAnnotation[];
 };
 
-export const catalog: ReadingSource[] = catalogData as ReadingSource[];
+const manifests = import.meta.glob('./catalog-data/sources/*/manifest.json', {
+	eager: true,
+	import: 'default'
+}) as Record<string, SourceManifest>;
+const contents = import.meta.glob('./catalog-data/sources/*/sections/*/content.json', {
+	eager: true,
+	import: 'default'
+}) as Record<string, ReadingSection>;
+const wordHelpFiles = import.meta.glob('./catalog-data/sources/*/sections/*/word-help.json', {
+	eager: true,
+	import: 'default'
+}) as Record<string, WordHelpAnnotation[]>;
+
+function packagePath(sourceId: string, sectionId?: string): string {
+	return sectionId
+		? `./catalog-data/sources/${sourceId}/sections/${sectionId}`
+		: `./catalog-data/sources/${sourceId}/manifest.json`;
+}
+
+const packagedSources = (catalogIndex as Omit<ReadingSource, 'sections' | 'wordHelp'>[]).map(
+	(indexEntry) => {
+		const manifest = manifests[packagePath(indexEntry.id)];
+		if (
+			!manifest ||
+			JSON.stringify(indexEntry) !==
+				JSON.stringify({
+					id: manifest.id,
+					title: manifest.title,
+					author: manifest.author,
+					language: manifest.language,
+					originalUrl: manifest.originalUrl
+				})
+		)
+			throw new Error(`Catalog index does not match source manifest: ${indexEntry.id}`);
+		const sourcePackage: SourcePackage = { manifest, sections: {} };
+		for (const sectionId of manifest.sectionIds) {
+			const base = packagePath(manifest.id, sectionId);
+			sourcePackage.sections[sectionId] = {
+				content: contents[`${base}/content.json`],
+				wordHelp: wordHelpFiles[`${base}/word-help.json`]
+			};
+		}
+		return assembleSourcePackage(sourcePackage);
+	}
+);
+const packagedIds = new Set(packagedSources.map((source) => source.id));
+
+export const catalog: ReadingSource[] = [
+	...(catalogData as ReadingSource[]).filter((source) => !packagedIds.has(source.id)),
+	...packagedSources
+].sort((left, right) => left.id.localeCompare(right.id));
 
 export function findSource(id: string | null): ReadingSource | undefined {
 	return catalog.find((source) => source.id === id);
