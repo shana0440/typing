@@ -14,7 +14,11 @@ describe('packaged Catalog source', () => {
 		]);
 	});
 
-	it('keeps legacy Reading Sources available during the tracer slice', () => {
-		expect(catalog.some((source) => source.id !== 'the-window-light')).toBe(true);
+	it('loads every Reading Source from independently managed packages', () => {
+		expect(catalog.map((source) => source.id)).toEqual([
+			'nineteen-eighty-four-21d7f7475a36',
+			'the-window-light',
+			'world-cup-2026-fastest-world-cup-to-100-goals-in-68-years-does-new-format-skew-figures-6b601663eea3'
+		]);
 	});
 });

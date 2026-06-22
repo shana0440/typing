@@ -1,4 +1,3 @@
-import catalogData from './catalog-data/catalog.json';
 import catalogIndex from './catalog-data/index.json';
 import { assembleSourcePackage, type SourceManifest, type SourcePackage } from './catalog-package';
 
@@ -64,12 +63,9 @@ const packagedSources = (catalogIndex as Omit<ReadingSource, 'sections' | 'wordH
 		return assembleSourcePackage(sourcePackage);
 	}
 );
-const packagedIds = new Set(packagedSources.map((source) => source.id));
-
-export const catalog: ReadingSource[] = [
-	...(catalogData as ReadingSource[]).filter((source) => !packagedIds.has(source.id)),
-	...packagedSources
-].sort((left, right) => left.id.localeCompare(right.id));
+export const catalog: ReadingSource[] = packagedSources.sort((left, right) =>
+	left.id.localeCompare(right.id)
+);
 
 export function findSource(id: string | null): ReadingSource | undefined {
 	return catalog.find((source) => source.id === id);

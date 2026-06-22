@@ -70,3 +70,36 @@ The command shows the remaining workload, loads the models available to the loca
 Every analysis subprocess runs in an isolated temporary directory with user configuration, repository rules, shell, multi-agent, app, hook, and web-search tools disabled. Its exact prompt, arguments, live JSONL events, live stderr, schema, and final response are retained under the draft's `.artifacts/codex/` directory for debugging. Every valid block result is validated and checkpointed immediately. If Codex omits part of a batch, only the missing blocks are retried; later runs resume finished work after a failure or interruption. Interactive terminals refresh the aggregate completed-block, active-request, retry, and elapsed-time line every second while Codex is working. Redirected output contains durable batch events and the final result only.
 
 After analysis, the command trusts the generated annotations and requires confirmation that the source is authorized for redistribution. Authorization publishes deterministic static Catalog data; the command never commits, pushes, or deploys.
+
+## Managing Catalog Packages
+
+Each Reading Source lives under `src/lib/catalog-data/sources/<source-id>/`. Its `manifest.json`
+holds metadata and ordered section IDs. Every section has an immutable `content.json` and a
+separate `word-help.json` whose offsets are local to that section. The generated
+`src/lib/catalog-data/index.json` contains only the metadata needed to discover and render the
+Catalog.
+
+Publish an analyzed, redistribution-authorized Import Draft with the normal command:
+
+```sh
+npm run publish:draft -- .imports/drafts/<draft-id>.json
+```
+
+Publish stages a complete replacement package and index before changing live data. Updating one
+source does not rewrite unrelated packages. Review the resulting package and index diff before
+committing.
+
+After editing a manifest or package directly, regenerate the deterministic index and validate all
+manifests, ordered sections, files, and Word Help spans:
+
+```sh
+npm run catalog:index
+npm run catalog:validate
+```
+
+The one-time legacy migration command remains available for verifiable conversions. It writes
+packages, reassembles them, and requires exact equality with every legacy Reading Source:
+
+```sh
+npm run catalog:migrate -- path/to/legacy-catalog.json
+```
