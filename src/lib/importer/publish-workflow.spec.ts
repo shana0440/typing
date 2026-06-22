@@ -256,7 +256,7 @@ if (process.argv[2] === 'app-server') {
 		expect(
 			JSON.parse(await readFile(join(packageDirectory, 'manifest.json'), 'utf8'))
 		).toMatchObject({
-			sectionIds: ['section-1']
+			sections: [{ id: 'section-1', title: 'A careful test' }]
 		});
 		expect(
 			JSON.parse(

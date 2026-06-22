@@ -1,24 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { catalog, findSource, sourceText } from './catalog';
+import { catalog, findSection, findSource, loadSection } from './catalog';
 
-describe('packaged Catalog source', () => {
-	it('loads through the existing Catalog interface with exact text and Word Help', () => {
-		const source = findSource('the-window-light');
+describe('sectioned Catalog', () => {
+	it('exposes source and ordered section metadata without section prose', () => {
+		const source = findSource('nineteen-eighty-four-21d7f7475a36');
 		expect(source).toBeDefined();
-		expect(sourceText(source!)).toBe(
-			'Mara opened the window before sunrise. The street below was quiet, and the cool air smelled of rain.\n\nShe set a small lamp beside her book. Soon, a warm square of light rested on every page.'
-		);
-		expect(source!.wordHelp.map(({ id, start, end }) => ({ id, start, end }))).toEqual([
-			{ id: 'opened', start: 5, end: 11 },
-			{ id: 'before-sunrise', start: 23, end: 37 }
-		]);
+		expect(source!.sections[0]).toEqual({ id: 'section-2', title: 'Chapter 1' });
+		expect(source!.sections.at(-1)).toEqual({ id: 'section-26', title: 'THE END' });
+		expect(source!.sections[0]).not.toHaveProperty('text');
+		expect(catalog).toHaveLength(1);
 	});
 
-	it('loads every Reading Source from independently managed packages', () => {
-		expect(catalog.map((source) => source.id)).toEqual([
-			'nineteen-eighty-four-21d7f7475a36',
-			'the-window-light',
-			'world-cup-2026-fastest-world-cup-to-100-goals-in-68-years-does-new-format-skew-figures-6b601663eea3'
-		]);
+	it('loads only a requested section package with section-local Word Help', async () => {
+		const source = catalog[0];
+		const metadata = findSection(source, 'section-2');
+		const loaded = await loadSection(source.id, metadata!.id);
+		expect(loaded.content.id).toBe('section-2');
+		expect(loaded.content.text).toContain('It was a bright cold day in April');
+		expect(loaded.wordHelp.every(({ end }) => end <= loaded.content.text.length)).toBe(true);
 	});
 });

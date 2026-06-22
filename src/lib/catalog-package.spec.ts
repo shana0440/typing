@@ -9,7 +9,10 @@ function sourcePackage(): SourcePackage {
 			author: 'Example',
 			language: 'en',
 			originalUrl: null,
-			sectionIds: ['first', 'second']
+			sections: [
+				{ id: 'first', title: 'First' },
+				{ id: 'second', title: 'Second' }
+			]
 		},
 		sections: {
 			first: { content: { id: 'first', title: 'First', text: 'First text.' }, wordHelp: [] },

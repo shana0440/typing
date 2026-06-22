@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { catalog, sourceText, type ReadingSource } from '$lib/catalog';
+	import { catalog, type CatalogSource } from '$lib/catalog';
+	import { startSourcePath } from '$lib/source-route';
 	import {
-		clearSourceProgress,
 		emptyProgress,
-		progressForSource,
+		mostRecentSection,
 		readProgress,
+		sourceProgress,
 		type ReadingProgress
 	} from '$lib/progress';
 	import { resolve } from '$app/paths';
@@ -15,7 +16,7 @@
 	const mostRecent = $derived.by(
 		() =>
 			catalog
-				.map((source) => ({ source, saved: progressForSource(progress, source) }))
+				.map((source) => ({ source, saved: mostRecentSection(progress, source) }))
 				.filter((entry) => entry.saved !== undefined)
 				.sort((a, b) => b.saved!.lastActiveAt.localeCompare(a.saved!.lastActiveAt))[0]
 	);
@@ -24,23 +25,16 @@
 		progress = readProgress(localStorage);
 	});
 
-	function percentage(source: ReadingSource): number {
-		const saved = progressForSource(progress, source);
-		return saved ? Math.round((saved.position / sourceText(source).length) * 100) : 0;
+	function percentage(source: CatalogSource): number {
+		return sourceProgress(progress, source).percentage;
 	}
 
-	function wordCount(source: ReadingSource): string {
-		return new Intl.NumberFormat('en', { notation: 'compact' }).format(
-			sourceText(source).trim().split(/\s+/).length
-		);
-	}
-
-	function sourceKind(source: ReadingSource): string {
+	function sourceKind(source: CatalogSource): string {
 		return source.originalUrl ? 'Article' : 'Short story';
 	}
 
-	function restart(sourceId: string) {
-		clearSourceProgress(localStorage, sourceId);
+	function sourceHref(source: CatalogSource): string {
+		return startSourcePath(source);
 	}
 </script>
 
@@ -86,11 +80,13 @@
 					<span style:width={`${percentage(mostRecent.source)}%`}></span>
 				</div>
 			</div>
-			<form action={resolve('/session')} method="get">
-				<button class="primary-action" name="source" value={mostRecent.source.id} type="submit"
-					>{mostRecent.saved?.completedAt ? 'View completed' : 'Continue reading'}</button
-				>
-			</form>
+			<a
+				class="primary-action"
+				href={resolve('/sources/[sourceId]/sections/[sectionId]', {
+					sourceId: mostRecent.source.id,
+					sectionId: mostRecent.saved!.sectionId
+				})}>{mostRecent.saved?.completedAt ? 'View completed' : 'Continue reading'}</a
+			>
 		</section>
 	{/if}
 
@@ -105,7 +101,7 @@
 
 		<div class="source-grid">
 			{#each catalog as source (source.id)}
-				{@const saved = progressForSource(progress, source)}
+				{@const saved = mostRecentSection(progress, source)}
 				<article class="source-card">
 					<div class="source-card-main">
 						<div class="source-card-index" aria-hidden="true">
@@ -120,7 +116,6 @@
 					</div>
 					<div class="source-footer">
 						<div class="source-details">
-							<span>{wordCount(source)} words</span>
 							<span
 								>{source.sections.length}
 								{source.sections.length === 1 ? 'section' : 'sections'}</span
@@ -129,16 +124,10 @@
 								{saved?.completedAt ? 'Completed' : `${percentage(source)}% complete`}
 							</span>
 						</div>
-						<form action={resolve('/session')} method="get">
-							<button
-								class="primary-action"
-								name="source"
-								value={source.id}
-								type="submit"
-								onclick={() => saved?.completedAt && restart(source.id)}
-								>{saved?.completedAt ? 'Read again' : saved ? 'Continue' : 'Begin reading'}</button
-							>
-						</form>
+						<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- startSourcePath resolves the typed route. -->
+						<a class="primary-action" href={sourceHref(source)}
+							>{saved ? 'View sections' : 'Begin reading'}</a
+						>
 					</div>
 				</article>
 			{/each}

@@ -70,6 +70,78 @@ p {
 	padding: 0 0 96px;
 }
 
+.source-page {
+	width: min(920px, calc(100% - 80px));
+	margin: 0 auto;
+	padding-bottom: 96px;
+}
+.source-page-header {
+	padding: 72px 0 56px;
+	border-bottom: 1px solid var(--line);
+}
+.source-page-header h1 {
+	max-width: 18ch;
+	margin: 12px 0 14px;
+	font-family: Georgia, 'Times New Roman', serif;
+	font-size: clamp(3rem, 7vw, 5.5rem);
+	font-weight: 400;
+	letter-spacing: -0.045em;
+	line-height: 1;
+}
+.source-page-header > p:not(.eyebrow) {
+	color: var(--muted);
+}
+.overall-progress {
+	max-width: 420px;
+	margin-top: 36px;
+	color: var(--blue-bright);
+	font-size: 0.75rem;
+}
+.overall-progress .card-progress {
+	margin-top: 12px;
+}
+.source-page section {
+	padding-top: 48px;
+}
+.section-list {
+	margin: 0;
+	padding: 0;
+	border-top: 1px solid var(--line);
+	list-style: none;
+}
+.section-list li {
+	border-bottom: 1px solid var(--line);
+}
+.section-list a {
+	display: grid;
+	min-height: 74px;
+	grid-template-columns: 54px 1fr auto;
+	align-items: center;
+	gap: 20px;
+	padding: 0 20px;
+	text-decoration: none;
+	transition: background 160ms ease;
+}
+.section-list a:hover {
+	background: var(--ink-raised);
+}
+.section-list strong {
+	font-family: Georgia, 'Times New Roman', serif;
+	font-size: 1.125rem;
+	font-weight: 400;
+}
+.section-number,
+.section-list a > span:last-child {
+	color: var(--faint);
+	font-size: 0.6875rem;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+.section-list .completed-status {
+	color: var(--blue-bright);
+}
+
 .site-nav {
 	display: flex;
 	height: 88px;

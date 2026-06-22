@@ -1,23 +1,20 @@
 <script lang="ts">
-	import { catalog, findSource, sourceText, type WordHelpAnnotation } from '$lib/catalog';
+	import type { WordHelpAnnotation } from '$lib/catalog';
 	import {
-		clearSourceProgress,
+		clearSectionProgress,
 		isWordBoundary,
-		progressForSource,
+		progressForSection,
 		readProgress,
-		saveSourceProgress
+		saveSectionProgress
 	} from '$lib/progress';
-	import { browser } from '$app/environment';
 	import { resolve } from '$app/paths';
-	import { page } from '$app/state';
 	import { onMount, tick } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 
-	const sourceId = $derived(
-		browser ? (page.url.searchParams.get('source') ?? catalog[0].id) : catalog[0].id
-	);
-	const source = $derived(findSource(sourceId));
-	const text = $derived(source ? sourceText(source) : '');
+	let { data } = $props();
+	const source = $derived(data.source);
+	const section = $derived(data.section.content);
+	const text = $derived(section.text);
 	let position = $state(0);
 	let error = $state<{ expected: string; actual: string } | null>(null);
 	let incorrectPositions = new SvelteSet<number>();
@@ -30,7 +27,7 @@
 	let helpPanel = $state<HTMLElement>();
 
 	const progress = $derived(text.length === 0 ? 0 : Math.round((position / text.length) * 100));
-	const sectionTitle = $derived(source?.sections[0]?.title ?? '');
+	const sectionTitle = $derived(section.title);
 	const completionDate = $derived(
 		completedAt
 			? new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(completedAt))
@@ -48,7 +45,7 @@
 
 	onMount(() => {
 		if (source) {
-			const saved = progressForSource(readProgress(localStorage), source);
+			const saved = progressForSection(readProgress(localStorage), source.id, section);
 			if (saved) {
 				position = saved.position;
 				completedAt = saved.completedAt;
@@ -75,7 +72,7 @@
 
 	async function openHelp() {
 		if (!source) return;
-		const annotation = source.wordHelp.find(
+		const annotation = data.section.wordHelp.find(
 			(candidate) => position >= candidate.start && position < candidate.end
 		);
 		if (!annotation) {
@@ -105,16 +102,22 @@
 		error = null;
 		helpMessage = null;
 
-		const saved = progressForSource(readProgress(localStorage), source);
+		const saved = progressForSection(readProgress(localStorage), source.id, section);
 		let resumablePosition = position;
 		while (resumablePosition > 0 && !isWordBoundary(text, resumablePosition)) {
 			resumablePosition -= 1;
 		}
 		if (saved && saved.position > resumablePosition) {
 			if (resumablePosition === 0) {
-				clearSourceProgress(localStorage, source.id);
+				clearSectionProgress(localStorage, source.id, section.id);
 			} else {
-				saveSourceProgress(localStorage, source, resumablePosition, new Date().toISOString());
+				saveSectionProgress(
+					localStorage,
+					source.id,
+					section,
+					resumablePosition,
+					new Date().toISOString()
+				);
 			}
 		}
 		keepCurrentPositionVisible();
@@ -164,18 +167,18 @@
 			if (error === null) {
 				completedAt = new Date().toISOString();
 				completed = true;
-				saveSourceProgress(localStorage, source, position, completedAt, completedAt);
+				saveSectionProgress(localStorage, source.id, section, position, completedAt, completedAt);
 			}
 		} else {
 			if (expectedCharacter === ' ' || position > positionAfterInput) {
-				saveSourceProgress(localStorage, source, position, new Date().toISOString());
+				saveSectionProgress(localStorage, source.id, section, position, new Date().toISOString());
 			}
 			keepCurrentPositionVisible();
 		}
 	}
 
 	function restart() {
-		if (source) clearSourceProgress(localStorage, source.id);
+		if (source) clearSectionProgress(localStorage, source.id, section.id);
 		position = 0;
 		error = null;
 		incorrectPositions.clear();
@@ -188,18 +191,12 @@
 </script>
 
 <svelte:head>
-	<title>{source ? `${source.title} | Typing Practice` : 'Reading Source not found'}</title>
+	<title>{section.title} · {source.title} | Typing Practice</title>
 </svelte:head>
 
 <svelte:window onkeydown={handleKeydown} />
 
-{#if !source}
-	<main class="not-found">
-		<p class="eyebrow">Catalog</p>
-		<h1>Reading Source not found</h1>
-		<a class="primary-action" href={resolve('/')}>Return to Catalog</a>
-	</main>
-{:else if !hydrated}
+{#if !hydrated}
 	<main class="session-loading" aria-live="polite">
 		<p>Loading Reading Progress...</p>
 	</main>
@@ -209,15 +206,30 @@
 		<h1>{source.title}</h1>
 		<p>Completed <time datetime={completedAt ?? undefined}>{completionDate}</time></p>
 		<div class="completion-actions">
-			<a class="secondary-action" href={resolve('/')}>Return to Catalog</a>
+			<a class="secondary-action" href={resolve('/sources/[sourceId]', { sourceId: source.id })}
+				>View sections</a
+			>
+			{#if data.nextSection}
+				<a
+					class="primary-action"
+					href={resolve('/sources/[sourceId]/sections/[sectionId]', {
+						sourceId: source.id,
+						sectionId: data.nextSection.id
+					})}>Next section</a
+				>
+			{/if}
 			<button class="primary-action" type="button" onclick={restart}>Read again</button>
 		</div>
 	</main>
 {:else}
 	<main class="session-page">
 		<header class="session-header">
-			<a class="catalog-link" href={resolve('/')} aria-label="Return to Catalog">
-				<span aria-hidden="true">←</span> Catalog
+			<a
+				class="catalog-link"
+				href={resolve('/sources/[sourceId]', { sourceId: source.id })}
+				aria-label="View sections"
+			>
+				<span aria-hidden="true">←</span> Sections
 			</a>
 			<div class="source-context">
 				<strong>{source.title}</strong>

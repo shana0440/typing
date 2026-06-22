@@ -10,7 +10,7 @@ import { draftSourceText } from './draft.ts';
 import { ImportError } from './extract.ts';
 import type { ImportAnnotation, ImportDraft } from './types.ts';
 
-type CatalogIndexEntry = Omit<SourceManifest, 'sectionIds'>;
+type CatalogIndexEntry = Omit<SourceManifest, 'sections'>;
 
 export type PublishDestination = {
 	rootDirectory: string;
@@ -87,7 +87,7 @@ export function sourcePackageFromDraft(draft: ImportDraft): SourcePackage {
 			author: draft.metadata.author ?? 'Unknown author',
 			language: 'en',
 			originalUrl: draft.metadata.originalUrl,
-			sectionIds: sections.map((section) => section.id)
+			sections: sections.map(({ id, title }) => ({ id, title }))
 		},
 		sections: packagedSections
 	};
@@ -102,7 +102,7 @@ function json(value: unknown): string {
 async function writePackage(directory: string, sourcePackage: SourcePackage): Promise<void> {
 	await mkdir(directory, { recursive: true });
 	await writeFile(join(directory, 'manifest.json'), json(sourcePackage.manifest), 'utf8');
-	for (const sectionId of sourcePackage.manifest.sectionIds) {
+	for (const { id: sectionId } of sourcePackage.manifest.sections) {
 		const sectionDirectory = join(directory, 'sections', sectionId);
 		await mkdir(sectionDirectory, { recursive: true });
 		await writeFile(

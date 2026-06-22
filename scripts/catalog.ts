@@ -7,7 +7,7 @@ import {
 } from '../src/lib/catalog-package.ts';
 import type { ReadingSource, WordHelpAnnotation } from '../src/lib/catalog.ts';
 
-type CatalogIndexEntry = Omit<SourceManifest, 'sectionIds'>;
+type CatalogIndexEntry = Omit<SourceManifest, 'sections'>;
 
 function json(value: unknown): string {
 	return `${JSON.stringify(value, null, '\t')}\n`;
@@ -31,7 +31,7 @@ async function readPackage(directory: string): Promise<SourcePackage> {
 		throw new Error(`Source directory does not match manifest ID: ${basename(directory)}`);
 	}
 	const sections: SourcePackage['sections'] = {};
-	for (const sectionId of manifest.sectionIds) {
+	for (const { id: sectionId } of manifest.sections) {
 		const sectionDirectory = join(directory, 'sections', sectionId);
 		sections[sectionId] = {
 			content: JSON.parse(await readFile(join(sectionDirectory, 'content.json'), 'utf8')),
@@ -101,7 +101,7 @@ function sourcePackage(source: ReadingSource): SourcePackage {
 			author: source.author,
 			language: source.language,
 			originalUrl: source.originalUrl,
-			sectionIds: source.sections.map((section) => section.id)
+			sections: source.sections.map(({ id, title }) => ({ id, title }))
 		},
 		sections
 	};
@@ -115,7 +115,7 @@ async function writePackage(rootDirectory: string, packaged: SourcePackage): Pro
 	await rm(temporaryDirectory, { recursive: true, force: true });
 	await mkdir(temporaryDirectory, { recursive: true });
 	await writeFile(join(temporaryDirectory, 'manifest.json'), json(packaged.manifest));
-	for (const sectionId of packaged.manifest.sectionIds) {
+	for (const { id: sectionId } of packaged.manifest.sections) {
 		const sectionDirectory = join(temporaryDirectory, 'sections', sectionId);
 		await mkdir(sectionDirectory, { recursive: true });
 		await writeFile(

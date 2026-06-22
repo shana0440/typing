@@ -1,7 +1,12 @@
-import type { ReadingSection, ReadingSource, WordHelpAnnotation } from './catalog';
+import type { ReadingSection, WordHelpAnnotation } from './catalog';
 
-export type SourceManifest = Omit<ReadingSource, 'sections' | 'wordHelp'> & {
-	sectionIds: string[];
+export type SourceManifest = {
+	id: string;
+	title: string;
+	author: string;
+	language: 'en';
+	originalUrl: string | null;
+	sections: Array<Pick<ReadingSection, 'id' | 'title'>>;
 };
 
 export type PackagedSection = {
@@ -12,6 +17,11 @@ export type PackagedSection = {
 export type SourcePackage = {
 	manifest: SourceManifest;
 	sections: Record<string, PackagedSection>;
+};
+
+type AssembledReadingSource = Omit<SourceManifest, 'sections'> & {
+	sections: ReadingSection[];
+	wordHelp: WordHelpAnnotation[];
 };
 
 function assertSpan(annotation: WordHelpAnnotation, text: string, sectionId: string): void {
@@ -30,21 +40,27 @@ function assertSpan(annotation: WordHelpAnnotation, text: string, sectionId: str
 	}
 }
 
-export function assembleSourcePackage(sourcePackage: SourcePackage): ReadingSource {
+export function assembleSourcePackage(sourcePackage: SourcePackage): AssembledReadingSource {
 	const { manifest, sections } = sourcePackage;
-	if (!manifest.id || manifest.language !== 'en' || manifest.sectionIds.length === 0) {
+	if (!manifest.id || manifest.language !== 'en' || manifest.sections.length === 0) {
 		throw new Error(`Invalid source manifest: ${manifest.id || '<missing id>'}`);
 	}
-	if (new Set(manifest.sectionIds).size !== manifest.sectionIds.length) {
+	if (new Set(manifest.sections.map(({ id }) => id)).size !== manifest.sections.length) {
 		throw new Error(`Source manifest has duplicate section IDs: ${manifest.id}`);
 	}
 
 	let offset = 0;
 	const assembledSections: ReadingSection[] = [];
 	const wordHelp: WordHelpAnnotation[] = [];
-	for (const sectionId of manifest.sectionIds) {
+	for (const metadata of manifest.sections) {
+		const sectionId = metadata.id;
 		const section = sections[sectionId];
-		if (!section || section.content.id !== sectionId || typeof section.content.text !== 'string') {
+		if (
+			!section ||
+			section.content.id !== sectionId ||
+			section.content.title !== metadata.title ||
+			typeof section.content.text !== 'string'
+		) {
 			throw new Error(`Missing or invalid section ${sectionId} in source ${manifest.id}`);
 		}
 		assembledSections.push(section.content);
@@ -62,11 +78,7 @@ export function assembleSourcePackage(sourcePackage: SourcePackage): ReadingSour
 	}
 
 	return {
-		id: manifest.id,
-		title: manifest.title,
-		author: manifest.author,
-		language: manifest.language,
-		originalUrl: manifest.originalUrl,
+		...manifest,
 		sections: assembledSections,
 		wordHelp
 	};
