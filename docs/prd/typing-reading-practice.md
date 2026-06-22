@@ -43,11 +43,11 @@ Provide a URL importer that extracts one complete HTML source, applies only the 
 27. As the operator, I want to import one complete publicly reachable HTML page through one command, so that Catalog maintenance fits my terminal workflow.
 28. As the operator, I want unsupported crawling, PDFs, paywall bypass, and incomplete sources rejected, so that import behavior remains predictable.
 29. As the operator, I want extraction to preserve source prose except for approved typing-friendly character replacements, so that AI cannot rewrite, correct, simplify, summarize, or paraphrase it.
-30. As the operator, I want page chrome excluded while title, author, language, structure, URL, normalized text, and annotations remain reviewable, so that I can verify the complete Import Draft.
+30. As the operator, I want page chrome excluded while title, author, language, structure, URL, normalized text, and annotations remain inspectable in retained artifacts, so that failures can be diagnosed without blocking publication on a full manual review.
 31. As the operator, I want AI to identify CEFR A2+ terms, idioms, and contextual meanings, so that Word Help is useful for intermediate learners.
 32. As the operator, I want AI annotations structurally separate from immutable source content, so that supplemental output cannot be mistaken for the work.
 33. As the operator, I want analysis delegated to my OAuth-authenticated Codex CLI, so that I do not manage a separate API key.
-34. As the operator, I want a local browser preview and explicit terminal approval, so that AI output is never Published automatically.
+34. As the operator, I want analyzed annotations trusted without a full manual review, so that large Reading Sources can be Published practically.
 35. As the operator, I want rejected drafts retained for inspection, so that extraction and annotation failures can be diagnosed.
 36. As the operator, I want approved Catalog output to be deterministic static data, so that deployment needs no database or AI runtime.
 37. As the operator, I want to confirm that a source is authorized for redistribution, so that the Catalog invariant is explicit.
@@ -65,7 +65,7 @@ Provide a URL importer that extracts one complete HTML source, applies only the 
 - Accept one HTML URL per import. Use deterministic readability extraction for content and Codex only for metadata suggestions, vocabulary selection, Chinese explanations, and generated examples.
 - Invoke a locally installed Codex CLI as a subprocess and require its OAuth login. Follow ADR-0001; never read or manipulate Codex OAuth tokens directly.
 - Request structured AI output and validate it before creating an Import Draft. Invalid spans, missing fields, source mismatches, and malformed responses fail closed.
-- Run a temporary local preview server. Publish remains an explicit terminal confirmation after visual review.
+- Trust analyzed annotations without requiring a temporary preview or full visual review.
 - Require operator confirmation that each source is authorized for redistribution; automated rights verification is not included.
 - Generate Catalog files only after approval. Do not commit, push, or deploy from the importer.
 - Represent Reading Progress as the last completed word boundary per stable source identifier and store it locally in the browser.

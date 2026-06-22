@@ -29,6 +29,15 @@ const validAnnotation = {
 	category: 'term' as const,
 	cefrLevel: 'B2' as const
 };
+const validAnalysisAnnotation = {
+	id: validAnnotation.id,
+	sourceQuote: sourceText.slice(validAnnotation.start, validAnnotation.end),
+	sentenceQuote: sourceText.slice(validAnnotation.sentenceStart, validAnnotation.sentenceEnd),
+	explanationZhTw: validAnnotation.explanationZhTw,
+	generatedExample: validAnnotation.generatedExample,
+	category: validAnnotation.category,
+	cefrLevel: validAnnotation.cefrLevel
+};
 const publishedAnnotation = { ...validAnnotation, id: 'section-1:0-intricate' };
 
 function newDraft(): ImportDraft {
@@ -104,6 +113,10 @@ if (process.argv[2] === 'app-server') {
     console.log(JSON.stringify({ type: 'thread.started', thread_id: 'fake-thread' }));
     console.log(JSON.stringify({ type: 'turn.started' }));
     console.log(JSON.stringify({ type: 'item.started', item: { type: 'agent_message' } }));
+	if (process.env.FAKE_CODEX_EVENT_ERROR === '1') {
+	  console.log(JSON.stringify({ type: 'turn.failed', error: { message: 'Incomplete response returned, reason: content_filter' } }));
+	  process.exit(2);
+	}
     console.log(JSON.stringify({ type: 'turn.completed' }));
     if (process.env.FAKE_CODEX_FAIL === '1' || (process.env.FAKE_CODEX_FAIL_ON_TEXT && prompt.includes(process.env.FAKE_CODEX_FAIL_ON_TEXT))) { console.error('simulated Codex failure'); process.exit(2); }
     const args = process.argv.slice(2);
@@ -112,7 +125,7 @@ if (process.argv[2] === 'app-server') {
     let response;
     if (process.env.FAKE_CODEX_DYNAMIC === '1') {
       const blocks = process.env.FAKE_CODEX_OMIT_FIRST === '1' && input.blocks.length > 1 ? input.blocks.slice(1) : input.blocks;
-      response = JSON.stringify({ results: blocks.map((block) => ({ key: block.key, sourceText: block.sourceText, annotations: [] })) });
+      response = JSON.stringify({ results: blocks.map((block) => ({ key: block.key, annotations: [] })) });
     } else {
       try {
         const configured = JSON.parse(process.env.FAKE_CODEX_RESPONSE ?? '{}');
@@ -146,6 +159,7 @@ if (process.argv[2] === 'app-server') {
 		dynamic?: boolean;
 		omitFirst?: boolean;
 		toolError?: boolean;
+		eventError?: boolean;
 		concurrency?: number;
 		batchSize?: number;
 		name: string;
@@ -192,6 +206,7 @@ if (process.argv[2] === 'app-server') {
 					FAKE_CODEX_DYNAMIC: options.dynamic ? '1' : '0',
 					FAKE_CODEX_OMIT_FIRST: options.omitFirst ? '1' : '0',
 					FAKE_CODEX_TOOL_ERROR: options.toolError ? '1' : '0',
+					FAKE_CODEX_EVENT_ERROR: options.eventError ? '1' : '0',
 					FAKE_CODEX_LOG: logPath,
 					IMPORT_PREVIEW_NO_OPEN: '1'
 				},
@@ -218,14 +233,16 @@ if (process.argv[2] === 'app-server') {
 		});
 	}
 
-	it('publishes deterministic static Catalog data after both confirmations', async () => {
-		const response = JSON.stringify({ sourceText, annotations: [validAnnotation] });
-		const result = await runWorkflow({ name: 'approved', input: 'yes\nyes\n', response });
+	it('publishes deterministic static Catalog data after authorization', async () => {
+		const response = JSON.stringify({ annotations: [validAnalysisAnnotation] });
+		const result = await runWorkflow({ name: 'approved', input: 'yes\n', response });
 
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain('Batch complete: section-1:0');
 		expect(result.stdout).toContain('Analysis complete');
-		expect(result.stdout).toContain('Review the complete Import Draft at http://127.0.0.1:');
+		expect(result.stdout).not.toContain('Is the extracted source and every annotation accurate?');
+		expect(result.stdout).not.toContain('Review the complete Import Draft');
+		expect(result.stdout).toContain('Are you authorized to redistribute');
 		expect(result.stdout).toContain('Files were written only');
 		const catalogArtifact = await readFile(result.catalogPath, 'utf8');
 		const catalog = JSON.parse(catalogArtifact);
@@ -305,31 +322,15 @@ if (process.argv[2] === 'app-server') {
 			JSON.parse(await readFile(join(requestDirectory, 'final-response.json'), 'utf8'))
 		).toMatchObject({ results: [{ key: 'section-1:0' }] });
 
-		const second = await runWorkflow({ name: 'approved-again', input: 'yes\nyes\n', response });
+		const second = await runWorkflow({ name: 'approved-again', input: 'yes\n', response });
 		expect(await readFile(second.catalogPath, 'utf8')).toBe(catalogArtifact);
-	});
-
-	it('retains analyzed annotations and leaves Catalog unchanged after rejection', async () => {
-		const result = await runWorkflow({
-			name: 'rejected',
-			input: 'no\n',
-			response: JSON.stringify({ sourceText, annotations: [validAnnotation] })
-		});
-		expect(result.code).toBe(0);
-		expect(result.stdout).toContain('Publish rejected');
-		expect(await readFile(result.catalogPath, 'utf8')).toBe('[]\n');
-		expect(JSON.parse(await readFile(result.draftPath, 'utf8'))).toMatchObject({
-			status: 'analyzed',
-			redistributionConfirmed: false,
-			annotations: [publishedAnnotation]
-		});
 	});
 
 	it('blocks Publish when redistribution authorization is declined', async () => {
 		const result = await runWorkflow({
 			name: 'unauthorized',
-			input: 'yes\nno\n',
-			response: JSON.stringify({ sourceText, annotations: [validAnnotation] })
+			input: 'no\n',
+			response: JSON.stringify({ annotations: [validAnalysisAnnotation] })
 		});
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain('Are you authorized to redistribute');
@@ -347,7 +348,7 @@ if (process.argv[2] === 'app-server') {
 			model: null,
 			modelAnswer: '2',
 			input: 'no\n',
-			response: JSON.stringify({ sourceText, annotations: [] })
+			response: JSON.stringify({ annotations: [] })
 		});
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain('Available Codex models:');
@@ -365,6 +366,14 @@ if (process.argv[2] === 'app-server') {
 		expect(result.stderr).toContain('Codex analysis failed: simulated Codex failure');
 		expect(await readFile(result.catalogPath, 'utf8')).toBe('[]\n');
 		expect(JSON.parse(await readFile(result.draftPath, 'utf8')).status).toBe('verified');
+	});
+
+	it('reports structured Codex event errors when stderr is empty', async () => {
+		const result = await runWorkflow({ name: 'event-error', eventError: true });
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain(
+			'Codex analysis failed: Incomplete response returned, reason: content_filter'
+		);
 	});
 
 	it('fails fast when Codex emits malformed tool-call arguments', async () => {
@@ -518,38 +527,50 @@ if (process.argv[2] === 'app-server') {
 	it.each([
 		['malformed', '{not json', 'malformed JSON'],
 		[
-			'missing-fields',
-			JSON.stringify({ sourceText, annotations: [{ id: 'missing' }] }),
-			'missing or invalid fields'
-		],
-		[
-			'invalid-span',
+			'unexpected-source-echo',
 			JSON.stringify({
 				sourceText,
-				annotations: [{ ...validAnnotation, end: sourceText.length + 1 }]
-			}),
-			'invalid source span'
-		],
-		[
-			'overlapping-spans',
-			JSON.stringify({
-				sourceText,
-				annotations: [validAnnotation, { ...validAnnotation, id: 'overlap', start: 8, end: 15 }]
-			}),
-			'overlapping annotation spans'
-		],
-		[
-			'source-mutation',
-			JSON.stringify({
-				sourceText: 'Rewritten source content.',
 				annotations: []
 			}),
-			'mutate or replace immutable source content'
+			'malformed JSON output'
 		]
 	])('rejects invalid Codex output: %s', async (name, response, message) => {
 		const result = await runWorkflow({ name, response });
 		expect(result.code).toBe(1);
 		expect(result.stderr).toContain(message);
+		expect(await readFile(result.catalogPath, 'utf8')).toBe('[]\n');
+	});
+
+	it.each([
+		[
+			'missing-fields',
+			JSON.stringify({ annotations: [{ id: 'missing' }] }),
+			'missing or invalid fields'
+		],
+		[
+			'invalid-quote',
+			JSON.stringify({
+				annotations: [{ ...validAnalysisAnnotation, sourceQuote: 'not in the source' }]
+			}),
+			'invalid or ambiguous source quote'
+		],
+		[
+			'overlapping-spans',
+			JSON.stringify({
+				annotations: [
+					validAnalysisAnnotation,
+					{ ...validAnalysisAnnotation, id: 'overlap', sourceQuote: 'intricate mechanism' }
+				]
+			}),
+			'overlapping annotation span'
+		]
+	])('skips an invalid annotation after retry: %s', async (name, response, message) => {
+		const result = await runWorkflow({ name: `salvage-${name}`, response, input: 'no\n' });
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain(`Retrying batch section-1:0: Codex returned`);
+		expect(result.stdout).toContain('Skipped invalid annotation in section-1:0');
+		expect(result.stdout).toContain(message);
+		expect(result.stdout).toContain('Batch complete: section-1:0');
 		expect(await readFile(result.catalogPath, 'utf8')).toBe('[]\n');
 	});
 

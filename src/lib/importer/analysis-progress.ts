@@ -33,6 +33,10 @@ export class TerminalAnalysisProgress {
 		if (event.type === 'batch-complete') {
 			this.#completed = event.completedBlocks;
 			this.#durable(`Batch complete: ${event.keys.join(', ')}`);
+		} else if (event.type === 'annotation-skipped') {
+			this.#durable(
+				`Skipped invalid annotation in ${event.keys.join(', ')}: ${event.errors.join('; ')}`
+			);
 		} else if (event.type === 'batch-retry') {
 			this.#retries = event.retryCount;
 			this.#durable(`Retrying batch ${event.keys.join(', ')}: ${event.error}`);

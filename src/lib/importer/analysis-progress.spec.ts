@@ -35,12 +35,21 @@ describe('analysis progress', () => {
 			completedBlocks: 3,
 			activeBatches: 1
 		});
+		progress.event({
+			type: 'annotation-skipped',
+			keys: ['section-1:1'],
+			activeBatches: 1,
+			errors: ['invalid quote a7']
+		});
 		progress.complete();
 
 		expect(target.output()).toContain('1/6 blocks · 2 active · 0 retries');
 		expect(target.output()).toContain('Retrying batch section-1:0: temporary');
 		expect(target.output()).toContain('3/6 blocks · 1 active · 1 retries');
 		expect(target.output()).toContain('Analysis complete');
+		expect(target.output()).toContain(
+			'Skipped invalid annotation in section-1:1: invalid quote a7'
+		);
 	});
 
 	it('emits only durable events for captured output', () => {

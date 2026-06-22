@@ -11,7 +11,6 @@ import { TerminalAnalysisProgress } from '../src/lib/importer/analysis-progress.
 import { draftSourceBlocks, readImportDraft, writeImportDraft } from '../src/lib/importer/draft.ts';
 import { ImportError } from '../src/lib/importer/extract.ts';
 import { listCodexModels } from '../src/lib/importer/models.ts';
-import { startPreview } from '../src/lib/importer/preview.ts';
 import { publishDraft } from '../src/lib/importer/publish.ts';
 
 function workflowArguments(args: string[]): {
@@ -199,13 +198,7 @@ async function main() {
 	draft.redistributionConfirmed = false;
 	await writeImportDraft(draftPath, draft);
 
-	const preview = await startPreview(draft);
-	console.log(`Review the complete Import Draft at ${preview.url}`);
 	try {
-		if (!(await confirmed('Is the extracted source and every annotation accurate?', terminal))) {
-			console.log('Publish rejected. The analyzed Import Draft was retained for inspection.');
-			return;
-		}
 		if (
 			!(await confirmed(
 				'Are you authorized to redistribute this complete Reading Source?',
@@ -223,7 +216,6 @@ async function main() {
 		console.log('Files were written only. Review the Git diff and commit manually.');
 	} finally {
 		terminal.close();
-		await preview.close();
 	}
 }
 

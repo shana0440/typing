@@ -14,15 +14,13 @@ const cefrLevels = ['A2', 'B1', 'B2', 'C1', 'C2'] as const;
 const annotationKeys = [
 	'category',
 	'cefrLevel',
-	'end',
 	'explanationZhTw',
 	'generatedExample',
 	'id',
-	'sentenceEnd',
-	'sentenceStart',
-	'start'
+	'sentenceQuote',
+	'sourceQuote'
 ];
-const resultKeys = ['annotations', 'key', 'sourceText'];
+const resultKeys = ['annotations', 'key'];
 export const DEFAULT_ANALYSIS_CONCURRENCY = 1;
 export const DEFAULT_ANALYSIS_BATCH_SIZE = 1;
 export const MAX_BATCH_CHARACTERS = 24_000;
@@ -32,10 +30,8 @@ const annotationSchema = {
 	type: 'object',
 	properties: {
 		id: { type: 'string' },
-		start: { type: 'integer' },
-		end: { type: 'integer' },
-		sentenceStart: { type: 'integer' },
-		sentenceEnd: { type: 'integer' },
+		sourceQuote: { type: 'string' },
+		sentenceQuote: { type: 'string' },
 		explanationZhTw: { type: 'string' },
 		generatedExample: { type: 'string' },
 		category: { type: 'string', enum: categories },
@@ -53,7 +49,6 @@ const analysisSchema = {
 				type: 'object',
 				properties: {
 					key: { type: 'string' },
-					sourceText: { type: 'string' },
 					annotations: { type: 'array', items: annotationSchema }
 				},
 				required: resultKeys,
@@ -65,13 +60,21 @@ const analysisSchema = {
 	additionalProperties: false
 };
 
-type BlockAnalysisOutput = { key: string; sourceText: string; annotations: unknown[] };
+type BlockAnalysisOutput = { key: string; annotations: unknown[] };
+type LocalAnnotationOutput = Omit<
+	ImportAnnotation,
+	'start' | 'end' | 'sentenceStart' | 'sentenceEnd'
+> & {
+	sourceQuote: string;
+	sentenceQuote: string;
+};
 export type AnalysisCheckpoint = NonNullable<ImportDraft['analysisProgress']> & {
 	annotations: ImportAnnotation[];
 };
 export type AnalysisEvent =
 	| { type: 'batch-start'; activeBatches: number }
 	| { type: 'batch-complete'; keys: string[]; completedBlocks: number; activeBatches: number }
+	| { type: 'annotation-skipped'; keys: string[]; activeBatches: number; errors: string[] }
 	| {
 			type: 'batch-retry';
 			keys: string[];
@@ -159,7 +162,35 @@ function runCodex(
 			stdio: ['pipe', 'pipe', 'pipe']
 		});
 		let stderr = '';
+		let stdoutBuffer = '';
+		let eventError = '';
 		let settled = false;
+		const readEvents = (chunk: string, complete = false) => {
+			stdoutBuffer += chunk;
+			const lines = stdoutBuffer.split('\n');
+			const remainder = lines.pop() ?? '';
+			stdoutBuffer = complete ? '' : remainder;
+			if (complete && remainder) lines.push(remainder);
+			for (const line of lines) {
+				try {
+					const event = JSON.parse(line) as {
+						type?: unknown;
+						message?: unknown;
+						error?: { message?: unknown };
+					};
+					const message =
+						typeof event.error?.message === 'string'
+							? event.error.message
+							: typeof event.message === 'string'
+								? event.message
+								: '';
+					if (message && (event.type === 'turn.failed' || event.type === 'error'))
+						eventError = message;
+				} catch {
+					// Raw output remains available in the diagnostics file.
+				}
+			}
+		};
 		const finish = (error?: Error) => {
 			if (settled) return;
 			settled = true;
@@ -185,6 +216,7 @@ function runCodex(
 		child.stdout?.setEncoding('utf8');
 		child.stdout?.on('data', (chunk: string) => {
 			if (diagnostics) appendFileSync(diagnostics.eventsPath, chunk, 'utf8');
+			readEvents(chunk);
 		});
 		child.stderr?.setEncoding('utf8');
 		child.stderr?.on('data', (chunk: string) => {
@@ -206,33 +238,50 @@ function runCodex(
 			finish(new ImportError(`Could not start Codex CLI: ${error.message}`))
 		);
 		child.on('close', (code) => {
+			readEvents('', true);
 			if (signal?.aborted) finish(abortedError());
 			else if (code === 0) finish();
 			else
 				finish(
-					new ImportError(`Codex analysis failed${stderr.trim() ? `: ${stderr.trim()}` : '.'}`)
+					new ImportError(
+						`Codex analysis failed${stderr.trim() || eventError ? `: ${stderr.trim() || eventError}` : '.'}`
+					)
 				);
 		});
 		child.stdin?.end(prompt);
 	});
 }
 
-function isInteger(value: unknown): value is number {
-	return typeof value === 'number' && Number.isSafeInteger(value);
+type QuoteSpan = { start: number; end: number };
+
+function quotePattern(quote: string): RegExp {
+	const escaped = quote
+		.split(/\s+/u)
+		.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+		.join('\\s+');
+	return new RegExp(escaped, 'gu');
 }
 
-function validateLocalAnnotation(value: unknown, text: string): ImportAnnotation {
+function allQuoteSpans(text: string, quote: string): QuoteSpan[] {
+	return [...text.matchAll(quotePattern(quote))].map((match) => ({
+		start: match.index,
+		end: match.index + match[0].length
+	}));
+}
+
+function validateLocalAnnotation(value: unknown, text: string): ImportAnnotation[] {
 	if (!value || typeof value !== 'object')
 		throw new ImportError('Codex returned a malformed annotation.');
-	const annotation = value as Partial<ImportAnnotation>;
+	const annotation = value as Partial<LocalAnnotationOutput>;
 	if (
 		!isDeepStrictEqual(Object.keys(value).sort(), annotationKeys) ||
 		typeof annotation.id !== 'string' ||
 		!annotation.id.trim() ||
-		!isInteger(annotation.start) ||
-		!isInteger(annotation.end) ||
-		!isInteger(annotation.sentenceStart) ||
-		!isInteger(annotation.sentenceEnd) ||
+		typeof annotation.sourceQuote !== 'string' ||
+		!annotation.sourceQuote.trim() ||
+		annotation.sourceQuote.trim() !== annotation.sourceQuote ||
+		typeof annotation.sentenceQuote !== 'string' ||
+		!annotation.sentenceQuote.trim() ||
 		typeof annotation.explanationZhTw !== 'string' ||
 		!annotation.explanationZhTw.trim() ||
 		!/[\p{Script=Han}]/u.test(annotation.explanationZhTw) ||
@@ -242,25 +291,40 @@ function validateLocalAnnotation(value: unknown, text: string): ImportAnnotation
 		!(annotation.cefrLevel === null || cefrLevels.some((level) => level === annotation.cefrLevel))
 	)
 		throw new ImportError('Codex returned an annotation with missing or invalid fields.');
-	if (
-		annotation.start < 0 ||
-		annotation.end > text.length ||
-		annotation.start >= annotation.end ||
-		annotation.sentenceStart < 0 ||
-		annotation.sentenceEnd > text.length ||
-		annotation.sentenceStart > annotation.start ||
-		annotation.sentenceEnd < annotation.end ||
-		annotation.sentenceStart >= annotation.sentenceEnd ||
-		text.slice(annotation.start, annotation.end).trim() !==
-			text.slice(annotation.start, annotation.end)
-	)
+	const sourceQuote = annotation.sourceQuote;
+	const sentenceSpans = allQuoteSpans(text, annotation.sentenceQuote);
+	const matches = sentenceSpans.flatMap((sentenceSpan) => {
+		const sentenceText = text.slice(sentenceSpan.start, sentenceSpan.end);
+		return allQuoteSpans(sentenceText, sourceQuote).map((localSpan) => ({
+			sentenceSpan,
+			localSpan
+		}));
+	});
+	if (!matches.length)
 		throw new ImportError(
-			`Codex returned an invalid source span for annotation "${annotation.id}".`
+			`Codex returned an invalid or ambiguous source quote for annotation "${annotation.id}".`
 		);
-	return annotation as ImportAnnotation;
+	return matches.map(({ sentenceSpan, localSpan }, index) => {
+		const start = sentenceSpan.start + localSpan.start;
+		return {
+			id: matches.length === 1 ? annotation.id : `${annotation.id}-${index + 1}`,
+			start,
+			end: sentenceSpan.start + localSpan.end,
+			sentenceStart: sentenceSpan.start,
+			sentenceEnd: sentenceSpan.end,
+			explanationZhTw: annotation.explanationZhTw,
+			generatedExample: annotation.generatedExample,
+			category: annotation.category,
+			cefrLevel: annotation.cefrLevel
+		} as ImportAnnotation;
+	});
 }
 
-export function validateBlockAnalysis(block: DraftSourceBlock, value: unknown): ImportAnnotation[] {
+function validateBlockAnalysisResult(
+	block: DraftSourceBlock,
+	value: unknown,
+	skipInvalidAnnotations = false
+): { annotations: ImportAnnotation[]; errors: string[] } {
 	if (
 		!value ||
 		typeof value !== 'object' ||
@@ -270,25 +334,44 @@ export function validateBlockAnalysis(block: DraftSourceBlock, value: unknown): 
 	const output = value as Partial<BlockAnalysisOutput>;
 	if (output.key !== block.key)
 		throw new ImportError(`Codex returned an unexpected block result "${output.key ?? ''}".`);
-	if (output.sourceText !== block.text)
-		throw new ImportError('Codex attempted to mutate or replace immutable source content.');
 	if (!Array.isArray(output.annotations))
 		throw new ImportError('Codex output is missing annotations.');
-	const local = output.annotations.map((annotation) =>
-		validateLocalAnnotation(annotation, block.text)
-	);
+	const local: ImportAnnotation[] = [];
+	const errors: string[] = [];
+	for (const annotation of output.annotations) {
+		try {
+			local.push(...validateLocalAnnotation(annotation, block.text));
+		} catch (error) {
+			if (!skipInvalidAnnotations) throw error;
+			errors.push(error instanceof Error ? error.message : String(error));
+		}
+	}
 	const byPosition = [...local].sort((left, right) => left.start - right.start);
-	for (let index = 1; index < byPosition.length; index += 1)
-		if (byPosition[index].start < byPosition[index - 1].end)
-			throw new ImportError('Codex returned overlapping annotation spans.');
-	return byPosition.map((annotation) => ({
-		...annotation,
-		id: `${block.key}-${annotation.id}`,
-		start: annotation.start + block.globalStart,
-		end: annotation.end + block.globalStart,
-		sentenceStart: annotation.sentenceStart + block.globalStart,
-		sentenceEnd: annotation.sentenceEnd + block.globalStart
-	}));
+	const retained: ImportAnnotation[] = [];
+	for (const annotation of byPosition) {
+		if (retained.length && annotation.start < retained.at(-1)!.end) {
+			if (!skipInvalidAnnotations)
+				throw new ImportError('Codex returned overlapping annotation spans.');
+			errors.push(`Codex returned overlapping annotation span "${annotation.id}".`);
+			continue;
+		}
+		retained.push(annotation);
+	}
+	return {
+		annotations: retained.map((annotation) => ({
+			...annotation,
+			id: `${block.key}-${annotation.id}`,
+			start: annotation.start + block.globalStart,
+			end: annotation.end + block.globalStart,
+			sentenceStart: annotation.sentenceStart + block.globalStart,
+			sentenceEnd: annotation.sentenceEnd + block.globalStart
+		})),
+		errors
+	};
+}
+
+export function validateBlockAnalysis(block: DraftSourceBlock, value: unknown): ImportAnnotation[] {
+	return validateBlockAnalysisResult(block, value).annotations;
 }
 
 export function validateBatchAnalysis(
@@ -303,8 +386,9 @@ export function validateBatchAnalysis(
 
 function validateAvailableBatchAnalysis(
 	blocks: DraftSourceBlock[],
-	value: unknown
-): { annotations: ImportAnnotation[]; completedKeys: Set<string> } {
+	value: unknown,
+	skipInvalidAnnotations = false
+): { annotations: ImportAnnotation[]; completedKeys: Set<string>; errors: string[] } {
 	if (!value || typeof value !== 'object' || !isDeepStrictEqual(Object.keys(value), ['results']))
 		throw new ImportError('Codex returned malformed JSON output.');
 	const results = (value as { results?: unknown }).results;
@@ -312,6 +396,7 @@ function validateAvailableBatchAnalysis(
 	const requested = new Map(blocks.map((block) => [block.key, block]));
 	const seen = new Set<string>();
 	const annotations: ImportAnnotation[] = [];
+	const errors: string[] = [];
 	for (const result of results) {
 		const key =
 			result && typeof result === 'object' ? (result as { key?: unknown }).key : undefined;
@@ -319,22 +404,39 @@ function validateAvailableBatchAnalysis(
 			throw new ImportError(`Codex returned an unexpected block result "${String(key ?? '')}".`);
 		if (seen.has(key)) throw new ImportError(`Codex returned a duplicate block result "${key}".`);
 		seen.add(key);
-		annotations.push(...validateBlockAnalysis(requested.get(key)!, result));
+		const validated = validateBlockAnalysisResult(
+			requested.get(key)!,
+			result,
+			skipInvalidAnnotations
+		);
+		annotations.push(...validated.annotations);
+		errors.push(...validated.errors);
 	}
 	return {
 		annotations: annotations.sort((left, right) => left.start - right.start),
-		completedKeys: seen
+		completedKeys: seen,
+		errors
 	};
 }
 
-function promptForBatch(draft: ImportDraft, blocks: DraftSourceBlock[]): string {
+function promptForBatch(
+	draft: ImportDraft,
+	blocks: DraftSourceBlock[],
+	previousError?: string
+): string {
 	return [
 		'Analyze each exact English source block independently for contextual Word Help.',
 		'Do not call tools, inspect files, search, or run commands. Produce the final structured response directly from the supplied data.',
 		'Identify CEFR A2+ terms, idioms, phrasal verbs, and contextually unusual meanings.',
 		'Return exactly one keyed result per source block, with Traditional Chinese explanations and one generated English example per annotation.',
-		"All offsets are JavaScript UTF-16 indices local to that result's sourceText. Never span blocks.",
-		'Copy every key and sourceText exactly. Never rewrite, correct, summarize, omit, duplicate, or mutate source content.',
+		'For each annotation, copy sourceQuote and its complete containing sentenceQuote exactly from sourceText. Never estimate or return character offsets.',
+		'Each sentenceQuote must occur exactly once within its source block. A repeated sourceQuote is allowed when the same explanation applies to every occurrence in that sentence. Never span blocks.',
+		'Do not return sourceText or reproduce whole source blocks. Copy only each key and the short quotes needed by annotations.',
+		...(previousError
+			? [
+					`The previous response was rejected: ${previousError} Correct that problem in this response.`
+				]
+			: []),
 		JSON.stringify({
 			title: draft.metadata.title,
 			blocks: blocks.map(({ key, sectionHeading, text }) => ({
@@ -403,6 +505,7 @@ export async function analyzeImportDraft(
 		}
 		const runBatch = async (batch: DraftSourceBlock[]) => {
 			let pending = batch;
+			let previousError: string | undefined;
 			activeBatches += 1;
 			options.onAnalysisEvent?.({ type: 'batch-start', activeBatches });
 			try {
@@ -411,7 +514,7 @@ export async function analyzeImportDraft(
 					const outputPath = join(directory, `${randomUUID()}.json`);
 					try {
 						const requested = pending;
-						const requestPrompt = promptForBatch(draft, requested);
+						const requestPrompt = promptForBatch(draft, requested, previousError);
 						const args = [
 							'exec',
 							'--json',
@@ -486,7 +589,14 @@ export async function analyzeImportDraft(
 						} catch {
 							throw new ImportError('Codex returned malformed JSON output.');
 						}
-						const validated = validateAvailableBatchAnalysis(requested, output);
+						const validated = validateAvailableBatchAnalysis(requested, output, attempt === 1);
+						if (validated.errors.length)
+							options.onAnalysisEvent?.({
+								type: 'annotation-skipped',
+								keys: requested.map((block) => block.key),
+								activeBatches,
+								errors: validated.errors
+							});
 						const returned = requested.filter((block) => validated.completedKeys.has(block.key));
 						pending = requested.filter((block) => !validated.completedKeys.has(block.key));
 						if (returned.length)
@@ -520,6 +630,7 @@ export async function analyzeImportDraft(
 						if (options.signal?.aborted) throw abortedError();
 						if (attempt === 1) throw error;
 						retryCount += 1;
+						previousError = error instanceof Error ? error.message : String(error);
 						options.onAnalysisEvent?.({
 							type: 'batch-retry',
 							keys: pending.map((block) => block.key),
