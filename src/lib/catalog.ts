@@ -52,18 +52,7 @@ function packagePath(sourceId: string, sectionId?: string): string {
 const packagedSources = (catalogIndex as Omit<ReadingSource, 'sections' | 'wordHelp'>[]).map(
 	(indexEntry) => {
 		const manifest = manifests[packagePath(indexEntry.id)];
-		if (
-			!manifest ||
-			JSON.stringify(indexEntry) !==
-				JSON.stringify({
-					id: manifest.id,
-					title: manifest.title,
-					author: manifest.author,
-					language: manifest.language,
-					originalUrl: manifest.originalUrl
-				})
-		)
-			throw new Error(`Catalog index does not match source manifest: ${indexEntry.id}`);
+		if (!manifest) throw new Error(`Catalog index references a missing source: ${indexEntry.id}`);
 		const sourcePackage: SourcePackage = { manifest, sections: {} };
 		for (const sectionId of manifest.sectionIds) {
 			const base = packagePath(manifest.id, sectionId);

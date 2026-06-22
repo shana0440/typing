@@ -250,10 +250,24 @@ if (process.argv[2] === 'app-server') {
 		expect(catalog[0]).toMatchObject({
 			id: 'a-careful-test-123456789abc',
 			title: 'A Careful Test',
-			originalUrl: 'https://example.com/careful-test',
-			wordHelp: [publishedAnnotation]
+			originalUrl: 'https://example.com/careful-test'
 		});
-		expect(catalog[0].sections[0].text).toBe(sourceText);
+		const packageDirectory = join(directory, 'approved', 'sources', 'a-careful-test-123456789abc');
+		expect(
+			JSON.parse(await readFile(join(packageDirectory, 'manifest.json'), 'utf8'))
+		).toMatchObject({
+			sectionIds: ['section-1']
+		});
+		expect(
+			JSON.parse(
+				await readFile(join(packageDirectory, 'sections', 'section-1', 'content.json'), 'utf8')
+			)
+		).toMatchObject({ text: sourceText });
+		expect(
+			JSON.parse(
+				await readFile(join(packageDirectory, 'sections', 'section-1', 'word-help.json'), 'utf8')
+			)
+		).toEqual([publishedAnnotation]);
 		const retainedDraft = JSON.parse(await readFile(result.draftPath, 'utf8')) as ImportDraft;
 		expect(retainedDraft).toMatchObject({
 			status: 'analyzed',

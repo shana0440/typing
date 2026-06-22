@@ -21,17 +21,18 @@ function workflowArguments(args: string[]): {
 	batchSize: number;
 } {
 	const usage =
-		'Usage: bun run publish:draft <draft.json> [--model <model>] [--catalog-file <catalog.json>] [--concurrency <1-16>] [--batch-size <1-50>]';
+		'Usage: bun run publish:draft <draft.json> [--model <model>] [--catalog-dir <directory>] [--concurrency <1-16>] [--batch-size <1-50>]';
 	const [draftPath, ...options] = args;
 	if (!draftPath) throw new ImportError(usage);
 
-	let catalogPath = 'src/lib/catalog-data/catalog.json';
+	let catalogPath = 'src/lib/catalog-data';
 	let model: string | undefined;
 	let concurrency = DEFAULT_ANALYSIS_CONCURRENCY;
 	let batchSize = DEFAULT_ANALYSIS_BATCH_SIZE;
 	for (let index = 0; index < options.length; index += 1) {
 		if (!options[index + 1]) throw new ImportError(usage);
-		if (options[index] === '--catalog-file') catalogPath = options[index + 1];
+		if (options[index] === '--catalog-dir' || options[index] === '--catalog-file')
+			catalogPath = options[index + 1];
 		else if (options[index] === '--model') model = options[index + 1];
 		else if (options[index] === '--concurrency') concurrency = Number(options[index + 1]);
 		else if (options[index] === '--batch-size') batchSize = Number(options[index + 1]);
