@@ -64,7 +64,10 @@ export function requireImportUrl(input: string): URL {
 }
 
 function friendly(value: string): string {
-	return value.replaceAll('\r\n', '\n').replace(REPLACE_CHARACTER, (c) => REPLACEMENTS[c]);
+	return value
+		.replaceAll('\r\n', '\n')
+		.replaceAll('\r', '\n')
+		.replace(REPLACE_CHARACTER, (c) => REPLACEMENTS[c]);
 }
 
 function ordinaryText(element: Element): string {
@@ -75,6 +78,9 @@ function ordinaryText(element: Element): string {
 		.map((line) => line.replace(/[\t \f\v]+/g, ' ').trim())
 		.join('\n')
 		.replace(/\n{3,}/g, '\n\n')
+		.split(/\n\n+/)
+		.map((paragraph) => paragraph.replace(/\n+/g, ' '))
+		.join('\n\n')
 		.trim();
 }
 

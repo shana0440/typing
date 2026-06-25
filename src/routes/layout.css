@@ -590,6 +590,10 @@ kbd {
 	color: #fff8e8;
 	background: rgb(242 198 109 / 10%);
 }
+.newline-boundary {
+	display: inline-block;
+	min-width: 0.65ch;
+}
 .incorrect-character {
 	color: #ff9a9a;
 	background: rgb(143 45 57 / 32%);

@@ -78,6 +78,8 @@ test('reading text scrolls and word help opens without interrupting typing', asy
 		page.getByRole('complementary').getByRole('heading', { name: 'were striking thirteen' })
 	).toBeVisible();
 	await expect(typingStage).toBeFocused();
+	await expect(page.locator('.current-character')).toHaveClass(/newline-boundary/);
+	await page.keyboard.type(' ');
 	await expect(page.locator('.current-character')).toHaveText('t');
 });
 

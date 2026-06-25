@@ -2,7 +2,8 @@ import { createServer, type Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createImportAttempt, requireImportUrl } from './extract.ts';
 
-const html = `<!doctype html><html lang="fr"><head><title>Short Post</title><meta name="author" content="Ada"><link rel="canonical" href="/canonical"></head><body><nav>Chrome</nav><main><article><h1>Short Post</h1><p>Wait—don't…</p><pre>one\n  two</pre><p>Repeat me.</p><p>Repeat me.</p><a rel="next" href="/two">Next page</a></article></main><script>globalThis.bad=true</script></body></html>`;
+const html = `<!doctype html><html lang="fr"><head><title>Short Post</title><meta name="author" content="Ada"><link rel="canonical" href="/canonical"></head><body><nav>Chrome</nav><main><article><h1>Short Post</h1><p>Wait—don't…</p><p>Hard
+wrapped<br>line.</p><pre>one\n  two</pre><p>Repeat me.</p><p>Repeat me.</p><a rel="next" href="/two">Next page</a></article></main><script>globalThis.bad=true</script></body></html>`;
 
 describe('generic webpage extraction', () => {
 	let server: Server;
@@ -64,7 +65,15 @@ describe('generic webpage extraction', () => {
 		);
 		expect(
 			draft.source.sections.flatMap((section) => section.blocks.map((block) => block.text))
-		).toEqual(expect.arrayContaining(["Wait-don't...", 'one\n  two', 'Repeat me.', 'Repeat me.']));
+		).toEqual(
+			expect.arrayContaining([
+				"Wait-don't...",
+				'Hard wrapped line.',
+				'one\n  two',
+				'Repeat me.',
+				'Repeat me.'
+			])
+		);
 		expect(
 			draft.candidates.some((candidate) =>
 				candidate.warnings.some((warning) => warning.includes('Repeated'))

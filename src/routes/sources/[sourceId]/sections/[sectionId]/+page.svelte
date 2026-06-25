@@ -66,6 +66,10 @@
 		while (text[position] === '\n') position += 1;
 	}
 
+	function currentInputFor(character: string): string {
+		return character === '\n' ? ' ' : character;
+	}
+
 	async function keepCurrentPositionVisible() {
 		await tick();
 		document.querySelector('.current-character')?.scrollIntoView({ block: 'center' });
@@ -109,7 +113,7 @@
 		if (!source || position === 0) return;
 
 		position -= 1;
-		while (position > 0 && text[position] === '\n') position -= 1;
+		while (position > 0 && text[position - 1] === '\n') position -= 1;
 		activeHelp = helpAt(position) ?? null;
 		incorrectPositions.delete(position);
 		error = null;
@@ -164,16 +168,17 @@
 		const annotation = helpAt(inputPosition);
 		if (annotation) activeHelp = annotation;
 		const expectedCharacter = text[inputPosition];
-		if (event.key !== expectedCharacter) {
+		const expectedInput = currentInputFor(expectedCharacter);
+		if (event.key !== expectedInput) {
 			incorrectPositions.add(inputPosition);
-			error = { expected: expectedCharacter, actual: event.key };
+			error = { expected: expectedInput, actual: event.key };
 		} else {
 			error = null;
 		}
 		helpMessage = null;
 		const positionAfterInput = position + 1;
 		position += 1;
-		skipParagraphBoundaries();
+		if (expectedCharacter === '\n') skipParagraphBoundaries();
 		if (position >= text.length) {
 			if (error === null) {
 				completedAt = new Date().toISOString();
@@ -181,7 +186,11 @@
 				saveSectionProgress(localStorage, source.id, section, position, completedAt, completedAt);
 			}
 		} else {
-			if (expectedCharacter === ' ' || position > positionAfterInput) {
+			if (
+				expectedCharacter === ' ' ||
+				expectedCharacter === '\n' ||
+				position > positionAfterInput
+			) {
 				saveSectionProgress(localStorage, source.id, section, position, new Date().toISOString());
 			}
 			keepCurrentPositionVisible();
@@ -269,6 +278,13 @@
 					<div class="source-text" aria-label="Reading Source text">
 						{#each Array.from(text) as character, index (index)}
 							{#if character === '\n'}
+								<span
+									class:newline-boundary={true}
+									class:completed-character={index < position}
+									class:incorrect-character={incorrectPositions.has(index)}
+									class:current-character={index === position}
+								>
+								</span>
 								<br aria-hidden="true" />
 							{:else}
 								<span
